@@ -1,0 +1,4 @@
+/build/
+/build-*/
+# test-chain node binaries and datadirs (tests/testchain.sh)
+/testchain/
