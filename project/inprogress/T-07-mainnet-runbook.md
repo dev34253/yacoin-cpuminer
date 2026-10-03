@@ -45,3 +45,13 @@ Run the miner against the mainnet node safely, with a runbook.
   worded per `getwork` call. Not applied: nothing.
 - Note: the first runbook draft was committed together with T-05 (d04e463)
   by a broad `git add project`; this commit carries the reviewed version.
+- **Step 3: first mainnet run started 2026-10-03 13:32:27** (parent session,
+  owner approved). Started detached so it outlives the Claude session:
+  `setsid nohup build/yacoin-cpuminer >> ~/yacoin-cpuminer.log 2>&1 < /dev/null &`
+  (PID in `~/.config/yacoin-cpuminer/miner.pid`; stop with
+  `kill $(cat ~/.config/yacoin-cpuminer/miner.pid)`). Pre-flight: height
+  1,964,618, 2 connections, keypool 200, wallet not encrypted, Nfactor 21,
+  20 GiB available. First stats after 60 s: **4.08 H/s** (7 threads,
+  0.57–0.63 H/s each, AVX, huge pages, nice 10), expected 71 h per block;
+  load average about 7. Supervision continues; T-07 stays in progress until
+  the run has been watched for a few hours.
