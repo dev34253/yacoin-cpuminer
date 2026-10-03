@@ -139,7 +139,46 @@ binary is not a low-difficulty build.
 
 ## Performance
 
-(Filled in by T-06.)
+Measured 2026-10-03 on this laptop (Intel i5-8300H, 4 cores / 8 threads,
+30 GiB RAM, THP mode `madvise`) at N-factor 21, `nice 10`, 90 s per run after
+a warm-up hash, with the mainnet node running alongside (idle: 0–4 % CPU
+during the runs). `scripts/bench.sh` reproduces the miner rows,
+`scripts/builtin-bench.sh` the built-in-miner rows.
+
+| Build | Threads | Huge pages | Total H/s | Per thread H/s | Max pkg temp | Expected time per block* |
+|---|---|---|---|---|---|---|
+| AVX (`-march=native`) | 1 | on | 0.945 | 0.945 | 49 °C | 308 h |
+| AVX | 2 | on | 1.672 | 0.84 | 49 °C | 174 h |
+| AVX | 3 | on | 2.224 | 0.74 | 52 °C | 131 h |
+| AVX | 4 | on | 2.788 | 0.70 | 52 °C | 104 h |
+| AVX | 5 | on | 3.237 | 0.58–0.69 | 54 °C | 90 h |
+| AVX | 6 | on | 3.697 | 0.58–0.69 | 55 °C | 79 h |
+| **AVX** | **7** | **on** | **4.152** | 0.58–0.67 | 56 °C | **70 h (2.9 days)** |
+| AVX | 8 | on | 4.584 | 0.57 | 57 °C | 64 h |
+| AVX | 1 | off | 0.863 | 0.863 | 56 °C | 338 h |
+| AVX | 4 | off | 2.372 | 0.59 | 54 °C | 123 h |
+| AVX | 7 | off | 3.487 | 0.49–0.52 | 56 °C | 84 h |
+| SSE2 (`-msse2`, node baseline) | 1 | on | 0.859 | 0.859 | 55 °C | 339 h |
+| SSE2 | 4 | on | 2.535 | 0.63 | 54 °C | 115 h |
+| SSE2 | 7 | on | 3.795 | 0.53 | 56 °C | 77 h |
+| yacoind built-in miner (`setgenerate`, test node at N-factor 21) | 1 | – | 0.64 | 0.64 | – | 455 h |
+| yacoind built-in miner | 4 | – | 1.58 | 0.40 | – | 184 h |
+
+\* 1,048,577 hashes per block at mainnet's fixed minimum difficulty `1e0fffff` (plan §4) ÷ rate.
+
+- **Default: 7 threads** (owner decision Q5, confirmed): 4.15 H/s, about
+  70 hours per block on average (blocks arrive randomly: some much sooner,
+  some much later). The 8th thread would add 10 % (4.58 H/s) but takes the
+  last free hardware thread. With 4 threads (2.79 H/s, 104 h/block) the
+  miner uses half the CPU for two thirds of the rate; a good choice while
+  the laptop is busy.
+- **Huge pages on by default**: +9 % at 1 thread, +19 % at 7 threads.
+- **`-march=native` (AVX ChaCha) by default**: +10 % over the node's SSE2.
+- **vs the node's built-in miner**: +47 % at 1 thread, +76 % at 4 threads
+  (scratch buffer reused instead of 512 MiB malloc/free per hash, AVX, huge
+  pages).
+- Memory: 512 MiB per thread (7 threads = 3.5 GiB); the start-up check
+  wants that plus 1 GiB free. Temperatures stayed below 60 °C.
 
 ## Licence
 
