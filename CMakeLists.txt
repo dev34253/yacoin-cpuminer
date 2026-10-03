@@ -41,7 +41,16 @@ target_compile_options(yac_scrypt PRIVATE -O3 ${YAC_ARCH_FLAGS} -w)
 
 # ---- miner core (everything except main) ----
 add_library(yac_core STATIC
+  src/hash/pow_hash.cpp
   src/util/hex.cpp
+  src/work/header.cpp
+  src/work/target.cpp
+  src/work/getwork.cpp
+  src/rpc/config.cpp
+  src/rpc/rpc_client.cpp
+  src/rpc/node_api.cpp
+  src/util/log.cpp
+  src/app/options.cpp
 )
 target_include_directories(yac_core PUBLIC src third_party)
 target_include_directories(yac_core SYSTEM PUBLIC third_party/nlohmann)

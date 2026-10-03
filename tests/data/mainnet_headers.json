@@ -1,0 +1,66 @@
+{
+ "source": "mainnet yacoind (YAC-v1.11.0.0-a2c78385d461), read-only RPC getblockhash/getblockheader <hash> false/getblock, 2026-10-03",
+ "nfactor": 21,
+ "vectors": [
+  {
+   "height": 1890000,
+   "hash": "0000030f8402abf3d0e2efeb72274da8a4b4389ef8267d2c2a14fe58f2e088d0",
+   "header_hex": "070000004fe57500aea41715150e9203caac51a4f573df4cd1634251b29a85555400000096194ecdf9ec58586ed6147dc797f72b96c80028205baffa6ffd7c27a47d02461ab9806000000000ffff0f1e55555e3d",
+   "version": 7,
+   "previousblockhash": "0000005455859ab2514263d14cdf73f5a451acca03920e151517a4ae0075e54f",
+   "merkleroot": "46027da4277cfd6ffaaf5b202800c8962bf797c77d14d66e5858ecf9cd4e1996",
+   "time": 1619048730,
+   "bits": "1e0fffff",
+   "nonce": 1029592405,
+   "flags": "proof-of-work"
+  },
+  {
+   "height": 1890001,
+   "hash": "00000f507f68a09fcb97997be9717d0039aa3445881d2b14da90650b0914de05",
+   "header_hex": "07000000d088e0f258fe142a2c7d26f89e38b4a4a84d2772ebefe2d0f3ab02840f030000b045d2b82a877cbc79f317601f8d51319c48701404d26f75150b25d2174f6590b5cb806000000000ffff0f1e00000011",
+   "version": 7,
+   "previousblockhash": "0000030f8402abf3d0e2efeb72274da8a4b4389ef8267d2c2a14fe58f2e088d0",
+   "merkleroot": "90654f17d2250b15756fd2041470489c31518d1f6017f379bc7c872ab8d245b0",
+   "time": 1619053493,
+   "bits": "1e0fffff",
+   "nonce": 285212672,
+   "flags": "proof-of-work"
+  },
+  {
+   "height": 1910000,
+   "hash": "00000f3680c150bd7be6da09a10c5394323b61b817464c9b490d68d817f8f6c4",
+   "header_hex": "0700000097263d16b9b85e015caba7689c5d2b92543419e2c81311545c460606250700006a72e23f3b50b124f43626c93af11179d8c8ba464fc19eb7ae01364a0a6a1afd38c2256400000000ffff0f1e00000498",
+   "version": 7,
+   "previousblockhash": "000007250606465c541113c8e2193454922b5d9c68a7ab5c015eb8b9163d2697",
+   "merkleroot": "fd1a6a0a4a3601aeb79ec14f46bac8d87911f13ac92636f424b1503b3fe2726a",
+   "time": 1680196152,
+   "bits": "1e0fffff",
+   "nonce": 2550398976,
+   "flags": "proof-of-work"
+  },
+  {
+   "height": 1940000,
+   "hash": "00000b651abd3a824d1efe6988842dae9ac5dabe69732cbdde3dd7e339546f27",
+   "header_hex": "0700000050d6199aea9b6040f8ba86ae48d98edb360fdf5a776d6022f48a872e80030000800f934d1da1197df100cb7db00198b58fa297616fd9de8fbacca79964417773daea566700000000ffff0f1e40000aca",
+   "version": 7,
+   "previousblockhash": "000003802e878af422606d775adf0f36db8ed948ae86baf840609bea9a19d650",
+   "merkleroot": "7377416499a7ccba8fded96f6197a28fb59801b07dcb00f17d19a11d4d930f80",
+   "time": 1733749466,
+   "bits": "1e0fffff",
+   "nonce": 3389653056,
+   "flags": "proof-of-work"
+  },
+  {
+   "height": 1964617,
+   "hash": "00000384e8e155597aad553e8609b27aec6321086fe6aeb029869f47dcce17bf",
+   "header_hex": "07000000cfbefd5a915e724e8b4995b450425aa453e9df7e24967e10d7c3a6ea6b0d0000d114046137a241aee40f0b9b5764716aa32cd273ac12b27cf8f170002889a36876acc06a00000000ffff0f1ea00007a7",
+   "version": 7,
+   "previousblockhash": "00000d6beaa6c3d7107e96247edfe953a45a4250b495498b4e725e915afdbecf",
+   "merkleroot": "68a389280070f1f87cb212ac73d22ca36a7164579b0b0fe4ae41a237610414d1",
+   "time": 1791011958,
+   "bits": "1e0fffff",
+   "nonce": 2802253984,
+   "flags": "proof-of-work"
+  }
+ ]
+}

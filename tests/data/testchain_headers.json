@@ -1,0 +1,37 @@
+{
+ "source": "low-difficulty test chain (tests/testchain.sh), blocks mined by yacoind generatetoaddress; getblockheader <hash> false",
+ "yacoind": "Yacoin version: YAC-v1.11.0.0-2f098ffde962-dirty-leveldb-low-difficulty ",
+ "nfactor": 4,
+ "vectors": [
+  {
+   "height": 1,
+   "hash": "00e7fa9ea8d740a26eb847c60f425a952f9b84d9eb432e2c30148a4a93ef8366",
+   "header_hex": "070000004888a286960b5db7c4c6368fdeac483325b14e8cf0ab8c922797c5b95e33df1dcd044d073607128b14450d913a57587b97af1738849bf249d57f82330fd035423027c16a00000000ffff0020b0000000",
+   "version": 7,
+   "bits": "2000ffff",
+   "time": 1791043376,
+   "nonce": 176,
+   "flags": "proof-of-work"
+  },
+  {
+   "height": 2,
+   "hash": "00ddd7570ce264c7454e5c2db60f627b516efd6300f042912a939295eb922894",
+   "header_hex": "070000006683ef934a8a14302c2e43ebd9849b2f955a420fc647b86ea240d7a89efae7009761c5afe51257b41ec65238f365f076e593a3b1a8e3f6e30fa0c3624ffb16863127c16a00000000ffff002044030000",
+   "version": 7,
+   "bits": "2000ffff",
+   "time": 1791043377,
+   "nonce": 836,
+   "flags": "proof-of-work"
+  },
+  {
+   "height": 3,
+   "hash": "0027f524fb98badf350e78cbdb5e5e98bb053a3fe3462aa210c7097848b91fb7",
+   "header_hex": "07000000942892eb9592932a9142f00063fd6e517b620fb62d5c4e45c764e20c57d7dd006691a5714d707c4dca68165c1eb20518624787c57f2217b7c64baa1f8cc54d6f3127c16a00000000ffff00203f010000",
+   "version": 7,
+   "bits": "2000ffff",
+   "time": 1791043377,
+   "nonce": 319,
+   "flags": "proof-of-work"
+  }
+ ]
+}

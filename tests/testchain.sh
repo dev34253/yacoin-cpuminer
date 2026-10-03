@@ -71,6 +71,7 @@ rpcport=${RPC_PORT[$n]}
 port=${P2P_PORT[$n]}
 server=1
 EOF
+  chmod 600 "$d/yacoin.conf"
 }
 
 node_pid() { local f="$DATA/node$1/yacoind.pid"; [[ -f $f ]] && cat "$f" || true; }
