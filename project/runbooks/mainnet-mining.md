@@ -54,8 +54,9 @@ miner refuses `--rpc-password` for that reason. Template:
 Build once (`scripts/build.sh`; all tests must pass). Optionally check the
 work first: `build/yacoin-cpuminer --check-work` (one `getwork`, decoded and
 checked, never submitted; it does reserve a wallet key and add ~15 lines to
-the node's `debug.log`). Then, in a terminal you keep open (or
-`tmux`/`screen`):
+the node's `debug.log`). Then, in a terminal you keep open (or in `screen`;
+`tmux` is not installed; for `screen`, a transient `systemd-run` service and
+a detached `nohup` start, see README "Running in the background"):
 
 ```sh
 cd ~/projects/cpu-miner

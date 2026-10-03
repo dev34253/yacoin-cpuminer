@@ -48,7 +48,7 @@ Run the miner against the mainnet node safely, with a runbook.
 - **Step 3: first mainnet run started 2026-10-03 13:32:27** (parent session,
   owner approved). Started detached so it outlives the Claude session:
   `setsid nohup build/yacoin-cpuminer >> ~/yacoin-cpuminer.log 2>&1 < /dev/null &`
-  (PID in `~/.config/yacoin-cpuminer/miner.pid`; stop with
+  (PID in `~/.config/yacoin-cpuminer/miner.pid`, corrected by hand: `$!` held the setsid PID; stop with
   `kill $(cat ~/.config/yacoin-cpuminer/miner.pid)`). Pre-flight: height
   1,964,618, 2 connections, keypool 200, wallet not encrypted, Nfactor 21,
   20 GiB available. First stats after 60 s: **4.08 H/s** (7 threads,

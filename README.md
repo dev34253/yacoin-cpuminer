@@ -86,6 +86,40 @@ from the node is logged with a pointer to its `debug.log`, and new work is
 fetched (the node may have restarted and lost its saved blocks). A second
 Ctrl-C exits at once.
 
+### Running in the background
+
+The miner keeps running only as long as the process that started it, unless
+it is detached. Three ways, all reading `~/.config/yacoin-cpuminer/miner.conf`:
+
+1. **`screen`** (installed; `tmux` is not). Watch it live and detach:
+   ```sh
+   screen -S miner
+   cd ~/projects/cpu-miner && build/yacoin-cpuminer 2>&1 | tee -i -a ~/yacoin-cpuminer.log
+   # detach: Ctrl-A, then D. Reattach (also over SSH): screen -r miner. Stop: Ctrl-C.
+   ```
+2. **Transient systemd user service** (no unit file; not started at boot):
+   ```sh
+   systemd-run --user --unit=yacoin-cpuminer -p KillSignal=SIGINT \
+     --working-directory=%h/projects/cpu-miner %h/projects/cpu-miner/build/yacoin-cpuminer
+   systemctl --user status yacoin-cpuminer         # status
+   journalctl --user -u yacoin-cpuminer -f         # log
+   systemctl --user stop yacoin-cpuminer           # stop (prints final stats)
+   ```
+   With user lingering off (the default), it stops when you log out of the
+   laptop completely.
+3. **Detached with `nohup`** (survives closing the terminal):
+   ```sh
+   cd ~/projects/cpu-miner
+   setsid nohup build/yacoin-cpuminer >> ~/yacoin-cpuminer.log 2>&1 < /dev/null &
+   tail -f ~/yacoin-cpuminer.log                   # watch
+   pkill -TERM -x yacoin-cpuminer                  # stop (prints final stats)
+   ```
+   (Don't use `$!` for the PID here: in an interactive shell `setsid` forks,
+   so `$!` is the short-lived `setsid` process, not the miner.)
+
+Is it running? `pgrep -af yacoin-cpuminer`. None of these start it after a
+reboot.
+
 Mainnet procedure: `project/runbooks/mainnet-mining.md`.
 
 ## Benchmark
