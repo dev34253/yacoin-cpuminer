@@ -2,8 +2,14 @@
 
 A small, standalone CPU miner for Yacoin proof-of-work blocks. It gets work
 from a local `yacoind` over JSON-RPC (`getwork`) and hands solved blocks back.
+The node builds the block, signs it and pays its own wallet; the miner only
+searches nonces.
 
-Status: under construction (see `project/`).
+- PoW hash: the node's scrypt-jane (Keccak-512 + ChaCha20/8, N = 2^(Nfactor+1),
+  r = p = 1) over the 84-byte version-7 header. At mainnet's N-factor 21 every
+  hash needs **512 MiB** of memory, so each thread allocates 512 MiB once.
+- Proven against real mainnet blocks (known-answer tests) and a private test
+  chain (integration test). Plan and facts: `project/plans/plan.md`.
 
 ## Build
 
@@ -12,14 +18,102 @@ headers.
 
 ```sh
 sudo apt install build-essential cmake libcurl4-openssl-dev
-scripts/build.sh            # configure + build + ctest, in build/
+scripts/build.sh            # configure + build (nice 10, -j4) + ctest, in build/
 ```
 
-`scripts/build.sh` falls back to `uvx --from cmake` and a locally unpacked
-`libcurl4-openssl-dev` (no sudo) when cmake or the curl headers are missing.
+The binary is `build/yacoin-cpuminer`. `scripts/build.sh` falls back to `uvx
+--from cmake` and a locally unpacked `libcurl4-openssl-dev` (no sudo) when
+cmake or the curl headers are missing.
 
 CMake option `-DYAC_NATIVE=OFF` builds with the node's baseline `-msse2`
-instead of `-march=native`.
+(ChaCha SSE2 code) instead of `-march=native` (AVX on this laptop), e.g.
+`scripts/build.sh --build-dir build-sse2 -DYAC_NATIVE=OFF`.
+
+## Configure
+
+The miner reads **`~/.config/yacoin-cpuminer/miner.conf`** by default (another
+file with `--conf FILE`). It holds a copy of the node's RPC credentials, so keep
+it private:
+
+```sh
+mkdir -p ~/.config/yacoin-cpuminer && chmod 700 ~/.config/yacoin-cpuminer
+cp contrib/miner.conf.example ~/.config/yacoin-cpuminer/miner.conf
+chmod 600 ~/.config/yacoin-cpuminer/miner.conf   # then fill in rpcuser/rpcpassword/rpcport
+```
+
+Keys: `rpchost`, `rpcport`, `rpcuser`, `rpcpassword`, `rpctimeout`, `threads`,
+`nice`, `nfactor`, `tip_poll`, `work_refresh`, `retry`, `stats_interval`,
+`hugepages`. Command-line options override the file. The password is
+deliberately **not** accepted on the command line (it would show in `ps`).
+`--yacoin-conf FILE` reads `rpcuser`/`rpcpassword`/`rpcport`/`rpcconnect` from
+a node's `yacoin.conf` instead. The miner warns if a config file is readable
+by group or others.
+
+The node needs: at least one peer (otherwise `getwork` is refused), an
+unlocked (or unencrypted) wallet, and a non-empty keypool. The miner checks
+these at start-up, and that the node's `Nfactor` equals `--nfactor` (21).
+
+## Run
+
+```sh
+build/yacoin-cpuminer                      # defaults: 7 threads, nice 10, N-factor 21
+build/yacoin-cpuminer --threads 4          # fewer threads
+build/yacoin-cpuminer --check-work         # one getwork, decode + sanity checks, no mining
+build/yacoin-cpuminer --help
+```
+
+Stop with Ctrl-C (SIGINT) or SIGTERM; it prints final stats. Every
+`--stats-interval` seconds (60) it logs H/s (total and per thread), the
+expected time per block, and counters: work fetched, found, accepted,
+rejected, stale, retried, dropped.
+
+How it works: one coordinator thread polls `getbestblockhash` every
+`--tip-poll` s (5) and calls `getwork` only on a tip change, after a submit,
+or every `--work-refresh` s (300) — each `getwork` call makes the node save a
+block template, reserve a wallet key and write ~15 lines to `debug.log`. Each
+worker scans its own slice of the 32-bit nonce space and drops its work as soon
+as the tip changes (noticed within one tip poll; a solution on an old tip
+found in that window is recognised as stale and not submitted). Before each
+`getwork` the miner checks the node's wallet: it never fetches while the
+wallet is locked and the keypool is empty (that could crash the node). A found block is checked against the target locally, then
+submitted with the node's timestamp unchanged. If the node refuses because it
+has no peers or is in initial download, the solution is kept and retried
+every `--retry` s until it is accepted or the tip changes. A plain `false`
+from the node is logged with a pointer to its `debug.log`, and new work is
+fetched (the node may have restarted and lost its saved blocks). A second
+Ctrl-C exits at once.
+
+Mainnet procedure: `project/runbooks/mainnet-mining.md`.
+
+## Benchmark
+
+No node needed:
+
+```sh
+build/yacoin-cpuminer --benchmark --threads 4 --bench-seconds 90
+build/yacoin-cpuminer --benchmark --threads 2 --nfactor 4       # test-chain N-factor
+```
+
+Results on this laptop: see "Performance" below.
+
+## Tests
+
+```sh
+scripts/build.sh                 # unit tests incl. known-answer tests (ctest)
+tests/integration.sh             # end-to-end on a private test chain (~5-15 min)
+```
+
+- `test_hash`: the scrypt hash at N-factor 21 of five real mainnet version-7
+  headers (heights 1,890,000 – 1,964,617) equals their block hashes; three
+  test-chain blocks at N-factor 4 likewise.
+- `test_getwork`: real `getwork` replies from the test chain decode to
+  exactly the header the node logged (`raw_block_header_hex`); encoding a
+  nonce changes only the nonce word.
+- `test_target`, `test_rpc`, `test_miner` (nonce slicing, stale work,
+  submit/retry logic, an in-process node stand-in), `test_util`.
+- `tests/integration.sh`: two linked low-difficulty nodes; the miner's blocks
+  are accepted by both; stale work after another node's block; a submit
+  refused while the node has no peers is retried and accepted.
 
 ## Private test chain
 
@@ -34,6 +128,7 @@ tests/testchain.sh install ~/path/to/build-lowdiff/src   # copies into testchain
 tests/testchain.sh start      # fresh datadirs in testchain/data, waits until connected
 tests/testchain.sh status
 tests/testchain.sh cli 1 getmininginfo
+build/yacoin-cpuminer --conf "$(tests/testchain.sh conf 1)" --nfactor 4 --threads 2
 tests/testchain.sh stop
 ```
 
@@ -41,6 +136,10 @@ The low-difficulty build keeps mainnet's magic bytes and port, so the script
 isolates the nodes (`-connect` to each other only, `-bind=127.0.0.1`,
 `-dnsseed=0`, `-discover=0`) and refuses to start if a port is in use or the
 binary is not a low-difficulty build.
+
+## Performance
+
+(Filled in by T-06.)
 
 ## Licence
 

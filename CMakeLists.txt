@@ -51,6 +51,7 @@ add_library(yac_core STATIC
   src/rpc/node_api.cpp
   src/util/log.cpp
   src/app/options.cpp
+  src/miner/miner.cpp
 )
 target_include_directories(yac_core PUBLIC src third_party)
 target_include_directories(yac_core SYSTEM PUBLIC third_party/nlohmann)
