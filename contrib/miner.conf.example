@@ -1,0 +1,22 @@
+# yacoin-cpuminer config. Copy to ~/.config/yacoin-cpuminer/miner.conf and
+#   chmod 700 ~/.config/yacoin-cpuminer && chmod 600 ~/.config/yacoin-cpuminer/miner.conf
+# It holds the node's RPC password: keep it private. Lines starting with '#'
+# are comments (no comments after a value on the same line); the last value
+# of a key wins. Command-line options override it.
+
+# Node RPC (copy rpcuser/rpcpassword/rpcport from the node's yacoin.conf)
+rpchost=127.0.0.1
+rpcport=7687
+rpcuser=CHANGE_ME
+rpcpassword=CHANGE_ME
+# rpctimeout=120
+
+# Mining
+threads=7
+# nice=10
+# nfactor=21
+# hugepages=1
+# tip_poll=5
+# work_refresh=300
+# retry=5
+# stats_interval=60

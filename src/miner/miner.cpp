@@ -150,7 +150,8 @@ SubmitResult Submitter::submit(const Solution& s)
         }
         log_error("node returned false for block " + our_hash +
                   " (no saved block, PoW, stale or block rejected): see the node's debug.log, lines "
-                  "'rpc getwork' / 'CheckWork' / 'ProcessNewBlock'");
+                  "'rpc getwork, No saved block' / 'ERROR: CheckWork () : ...' (e.g. 'ProcessBlock, block "
+                  "not accepted') and the validation error before it");
         return SubmitResult::Rejected;
     }
 }
@@ -349,7 +350,8 @@ std::string Miner::stats_line(double interval_s, const std::vector<uint64_t>& pr
     }
     return "rate " + fmt_double(total, 2) + " H/s [" + per + "]" + eta + "; work " +
            std::to_string(stats_.work_fetched.load()) + ", found " + std::to_string(stats_.found.load()) +
-           ", accepted " + std::to_string(stats_.accepted.load()) + ", rejected " +
+           ", submitted " + std::to_string(stats_.submitted.load()) + ", accepted " +
+           std::to_string(stats_.accepted.load()) + ", rejected " +
            std::to_string(stats_.rejected.load()) + ", stale " + std::to_string(stats_.stale.load()) +
            ", retried " + std::to_string(stats_.retried.load()) + ", dropped " +
            std::to_string(stats_.dropped.load()) + ", hashes " + std::to_string(stats_.total_hashes());

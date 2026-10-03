@@ -31,8 +31,9 @@ CMake option `-DYAC_NATIVE=OFF` builds with the node's baseline `-msse2`
 
 ## Configure
 
-The miner reads **`~/.config/yacoin-cpuminer/miner.conf`** by default (another
-file with `--conf FILE`). It holds a copy of the node's RPC credentials, so keep
+The miner reads **`~/.config/yacoin-cpuminer/miner.conf`** by default
+(`$XDG_CONFIG_HOME/yacoin-cpuminer/miner.conf` if that is set; another file
+with `--conf FILE`). It holds a copy of the node's RPC credentials, so keep
 it private:
 
 ```sh
@@ -43,7 +44,8 @@ chmod 600 ~/.config/yacoin-cpuminer/miner.conf   # then fill in rpcuser/rpcpassw
 
 Keys: `rpchost`, `rpcport`, `rpcuser`, `rpcpassword`, `rpctimeout`, `threads`,
 `nice`, `nfactor`, `tip_poll`, `work_refresh`, `retry`, `stats_interval`,
-`hugepages`. Command-line options override the file. The password is
+`hugepages`. A `#` starts a comment only at the start of a line.
+Command-line options override the file. The password is
 deliberately **not** accepted on the command line (it would show in `ps`).
 `--yacoin-conf FILE` reads `rpcuser`/`rpcpassword`/`rpcport`/`rpcconnect` from
 a node's `yacoin.conf` instead. The miner warns if a config file is readable
@@ -62,14 +64,15 @@ build/yacoin-cpuminer --check-work         # one getwork, decode + sanity checks
 build/yacoin-cpuminer --help
 ```
 
-Stop with Ctrl-C (SIGINT) or SIGTERM; it prints final stats. Every
+Stop with Ctrl-C (SIGINT) or SIGTERM; it prints final stats (with `| tee`,
+use `tee -i` so the final lines are kept). Every
 `--stats-interval` seconds (60) it logs H/s (total and per thread), the
-expected time per block, and counters: work fetched, found, accepted,
+expected time per block, and counters: work fetched, found, submitted, accepted,
 rejected, stale, retried, dropped.
 
 How it works: one coordinator thread polls `getbestblockhash` every
 `--tip-poll` s (5) and calls `getwork` only on a tip change, after a submit,
-or every `--work-refresh` s (300) — each `getwork` call makes the node save a
+or every `--work-refresh` s (300) — each `getwork` fetch makes the node save a
 block template, reserve a wallet key and write ~15 lines to `debug.log`. Each
 worker scans its own slice of the 32-bit nonce space and drops its work as soon
 as the tip changes (noticed within one tip poll; a solution on an old tip

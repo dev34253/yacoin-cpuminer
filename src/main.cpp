@@ -34,6 +34,9 @@ static void install_signal_handlers()
     sigemptyset(&sa.sa_mask);
     sigaction(SIGINT, &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
+    // If stdout is a pipe (e.g. `| tee`) that goes away, keep running and
+    // still stop cleanly instead of dying from SIGPIPE.
+    signal(SIGPIPE, SIG_IGN);
 }
 
 // Applies the nice level to this thread before workers start; Linux threads

@@ -16,9 +16,11 @@ std::string usage()
 Mines Yacoin proof-of-work blocks on the CPU via the node's getwork RPC.
 
 Connection (settings: defaults < config files < command line):
-  --conf FILE           miner config (default ~/.config/yacoin-cpuminer/miner.conf):
-                        rpchost, rpcport, rpcuser, rpcpassword, threads, nice, nfactor,
-                        tip_poll, work_refresh, retry, stats_interval, hugepages
+  --conf FILE           miner config (default $XDG_CONFIG_HOME or ~/.config,
+                        then yacoin-cpuminer/miner.conf):
+                        rpchost, rpcport, rpcuser, rpcpassword, rpctimeout, threads, nice,
+                        nfactor, tip_poll, work_refresh, retry, stats_interval, hugepages
+                        ('#' starts a comment only at the start of a line)
   --yacoin-conf FILE    read rpcuser/rpcpassword/rpcport/rpcconnect from a node yacoin.conf
   --rpc-host HOST       default 127.0.0.1
   --rpc-port PORT       default 7687 (mainnet)

@@ -23,8 +23,9 @@ decisions: `project/open-questions.md`.
 
 - **Mainnet node** (`yacoind.service`, RPC 127.0.0.1:7687): only read-only RPCs
   (`getblockcount`, `getblockhash`, `getblockheader`, `getblock`,
-  `getbestblockhash`, `getmininginfo`, `getinfo`) unless the owner runs the
-  miner. Never touch `/srv/yacoin`, the service or its config.
+  `getbestblockhash`, `getmininginfo`, `getinfo`, `getconnectioncount`,
+  `getpeerinfo`, `getdifficulty`; `scripts/rpc-readonly.sh` enforces this
+  list) unless the owner runs the miner (`project/runbooks/mainnet-mining.md`). Never touch `/srv/yacoin`, the service or its config.
 - **Credentials** live in `~/.config/yacoin-cpuminer/miner.conf` (mode 600).
   Never print, log or commit the password. With the curl CLI, pass it via
   `--config -` on stdin, never on the command line.

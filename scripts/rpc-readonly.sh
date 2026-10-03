@@ -9,7 +9,7 @@
 # Only read-only methods are allowed; everything else is refused.
 set -euo pipefail
 
-CONF="${YAC_MINER_CONF:-$HOME/.config/yacoin-cpuminer/miner.conf}"
+CONF="${YAC_MINER_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/yacoin-cpuminer/miner.conf}"
 method="${1:?usage: $0 <method> [json-params]}"
 params="${2:-[]}"
 
@@ -18,7 +18,8 @@ case "$method" in
   *) echo "rpc-readonly: method '$method' is not on the read-only allowlist" >&2; exit 2 ;;
 esac
 
-get() { sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CONF" | tail -1; }
+# Same rules as the miner for miner.conf: last value wins, surrounding blanks and CR trimmed.
+get() { sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CONF" | tail -1 | sed -E 's/[[:space:]\r]+$//'; }
 host="$(get rpchost)"; port="$(get rpcport)"; user="$(get rpcuser)"; pass="$(get rpcpassword)"
 host="${host:-127.0.0.1}"; port="${port:-7687}"
 [[ -n "$user" && -n "$pass" ]] || { echo "rpc-readonly: rpcuser/rpcpassword missing in $CONF" >&2; exit 1; }
