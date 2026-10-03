@@ -1,5 +1,20 @@
 # Open questions for the owner
 
+## Answers (owner, 2026-10-03)
+
+- **Q1:** wait with the GitHub repository; local only for now.
+- **Q2:** go ahead with implementation.
+- **Q3:** option (c): RPC credentials in a separate miner config file,
+  `~/.config/yacoin-cpuminer/miner.conf` (mode 600, directory 700), copied
+  from the node's `yacoin.conf`. Done; credentials checked with
+  `getblockcount`.
+- **Q4:** licence not important; MIT is used.
+- **Q5:** leave one core free: default 7 threads on this 8-thread laptop
+  (7 × 512 MiB = 3.5 GiB of scratch memory).
+- **Q6:** do not start at boot for now; run by hand.
+
+## Questions as asked
+
 - **Q1 – Repository:** Create a GitHub repo for this project? Under which
   account, public or private, and what name
   (suggestion: `yacoin-cpuminer`)? Until then the repo is local only, in

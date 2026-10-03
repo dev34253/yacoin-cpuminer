@@ -1,6 +1,6 @@
 # Plan: standalone Yacoin CPU miner
 
-Status: draft for owner review, 2026-10-03. Reviewed by an independent
+Status: approved by the owner, 2026-10-03 (answers in `open-questions.md`). Reviewed by an independent
 subagent the same day; its findings are worked in (see §11).
 
 ## 1. Goal
@@ -199,8 +199,9 @@ project could use for testing.
   changes (§5). More `addnode` peers are still recommended (owner's choice).
 - The rewards go to the node's wallet. Wallet backup is the owner's job.
   Check that the keypool is not empty (F12).
-- RPC credentials are in `/srv/yacoin/datadir/yacoin.conf`, readable only by
-  the `yacoin` user (Q3).
+- RPC credentials: the miner reads `~/.config/yacoin-cpuminer/miner.conf`
+  (mode 600), a copy of the node's `rpcuser`/`rpcpassword`/`rpcport` (Q3).
+  Default threads there: 7 (Q5).
 - A runbook (T-07) covers start/stop, a `nice` level, an optional systemd
   unit, what to watch, and how to confirm that a found block was accepted and
   is in the main chain (and where in `debug.log` to look when a submit
