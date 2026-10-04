@@ -447,8 +447,13 @@ int Miner::run()
 // --------------------------------------------------------------- benchmark
 
 double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool huge_pages,
-                     std::vector<double>& per_thread, const std::atomic<bool>& stop)
+                     std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s)
 {
+    // Each thread counts only hashes that finish after `warmup_s` (laptop
+    // turbo/PL2 settles, plan §12). Its rate is measured from its first
+    // completion after the warm-up to its last completion before the end, so
+    // a hash that straddles a boundary is never counted partially.
+    if (warmup_s < 0 || warmup_s >= seconds) warmup_s = 0;
     std::atomic<unsigned> ready{0};
     std::atomic<bool> go{false};
     std::atomic<bool> done{false};
@@ -467,13 +472,23 @@ double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool hu
                 ready++;
                 while (!go && !stop) std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 auto t0 = Clock::now();
+                bool started = warmup_s <= 0;  // no warm-up: measure from t0
+                double t_first = 0;
                 uint32_t nonce = 0;
                 while (!done && !stop) {
                     set_header_nonce(header, nonce++);
                     hasher.hash(header, kHeaderSize, h);
                     if (done) break;  // finished after the deadline: not counted
+                    double t = std::chrono::duration<double>(Clock::now() - t0).count();
+                    if (!started) {
+                        if (t >= warmup_s) {
+                            started = true;
+                            t_first = t;
+                        }
+                        continue;
+                    }
                     counts[i]++;
-                    elapsed[i] = std::chrono::duration<double>(Clock::now() - t0).count();
+                    elapsed[i] = t - t_first;
                 }
             } catch (const std::exception& e) {
                 errors[i] = e.what();
@@ -483,6 +498,7 @@ double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool hu
     }
     while (ready < threads && !stop) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     go = true;
+    log_info("benchmark: timing started (all threads ready)");
     auto t0 = Clock::now();
     while (!stop && std::chrono::duration<double>(Clock::now() - t0).count() < seconds)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));

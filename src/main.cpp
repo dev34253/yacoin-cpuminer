@@ -105,11 +105,11 @@ static int check_work(const Options& o)
 static int benchmark(const Options& o)
 {
     log_info("benchmark: " + std::to_string(o.threads) + " threads, N-factor " + std::to_string(o.nfactor) + ", " +
-             fmt_double(o.bench_seconds, 0) + " s, " + scrypt_variant() + ", huge pages " +
+             fmt_double(o.bench_seconds, 0) + " s (first " + fmt_double(o.bench_warmup, 0) + " s not counted), " + scrypt_variant() + ", huge pages " +
              (o.huge_pages ? "requested" : "off") + ", nice " + std::to_string(o.nice));
     if (!memory_ok(o)) return 1;
     std::vector<double> per;
-    double total = run_benchmark(static_cast<unsigned>(o.threads), o.nfactor, o.bench_seconds, o.huge_pages, per, g_stop);
+    double total = run_benchmark(static_cast<unsigned>(o.threads), o.nfactor, o.bench_seconds, o.huge_pages, per, g_stop, o.bench_warmup);
     std::string s;
     for (size_t i = 0; i < per.size(); ++i) s += (i ? " " : "") + fmt_double(per[i], 3);
     log_info("benchmark result: total " + fmt_double(total, 3) + " H/s, per thread [" + s + "]");

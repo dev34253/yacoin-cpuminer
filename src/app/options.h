@@ -32,6 +32,7 @@ struct Options {
 
     bool benchmark = false;
     double bench_seconds = 60;
+    double bench_warmup = 0;     // seconds at the start of a benchmark not counted
     bool check_work = false;     // fetch one getwork, decode and print it, never submit
     bool help = false;
     bool version = false;

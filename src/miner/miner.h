@@ -145,9 +145,10 @@ private:
     std::deque<Solution> solutions_;
 };
 
-// Benchmark without a node: `threads` workers hash for `seconds` at `nfactor`.
+// Benchmark without a node: `threads` workers hash for `seconds` at `nfactor`;
+// hashes finishing in the first `warmup_s` seconds are not counted.
 // Returns total H/s; per-thread rates go to `per_thread`.
 double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool huge_pages,
-                     std::vector<double>& per_thread, const std::atomic<bool>& stop);
+                     std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s = 0);
 
 }  // namespace yac

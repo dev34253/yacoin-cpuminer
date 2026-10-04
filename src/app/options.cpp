@@ -44,6 +44,8 @@ Mining:
 Other modes:
   --benchmark           hash without a node: H/s for --threads at --nfactor
   --bench-seconds SEC   benchmark length (default 60)
+  --bench-warmup SEC    do not count hashes that finish in the first SEC
+                        seconds of the benchmark (default 0)
   --check-work          fetch ONE getwork, decode and check it, print it, exit.
                         Never submits. Note: a getwork fetch is not read-only on
                         the node (it saves a block template and reserves a key).
@@ -152,6 +154,7 @@ Options parse_options(int argc, char** argv, bool read_files)
         else if (a == "--max-blocks") o.max_blocks = static_cast<int>(to_long(a, value()));
         else if (a == "--benchmark") o.benchmark = true;
         else if (a == "--bench-seconds") o.bench_seconds = to_double(a, value());
+        else if (a == "--bench-warmup") o.bench_warmup = to_double(a, value());
         else if (a == "--check-work") o.check_work = true;
         else if (a == "--help" || a == "-h") o.help = true;
         else if (a == "--version") o.version = true;
@@ -164,6 +167,8 @@ Options parse_options(int argc, char** argv, bool read_files)
     if (o.tip_poll_s < 0.1 || o.work_refresh_s < 1 || o.retry_s < 0.1 || o.stats_s < 1 || o.bench_seconds < 1)
         throw std::invalid_argument("interval too small");
     if (o.work_refresh_s > 3600) throw std::invalid_argument("--work-refresh must be <= 3600 (node template age limit is 5400 s)");
+    if (o.bench_warmup < 0 || o.bench_warmup >= o.bench_seconds)
+        throw std::invalid_argument("--bench-warmup must be >= 0 and less than --bench-seconds");
     if (o.max_blocks < 0) throw std::invalid_argument("--max-blocks must be >= 0");
     return o;
 }
