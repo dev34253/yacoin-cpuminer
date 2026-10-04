@@ -37,3 +37,21 @@
   RAM), `nice 10`, and you can change it at any time.
 - **Q6 – Always on?** Run it as a systemd service that starts at boot, or
   only by hand?
+
+## Phase 2 (performance) questions
+
+- **Q7 – sudo for profiling (T-08):** `kernel.perf_event_paranoid` is 4,
+  which blocks user-space hardware counters, and the DRAM counters
+  (`uncore_imc`), `dmidecode` (memory channels) and RAPL energy are root-only.
+  Options: (a) run `perf` and `dmidecode` with sudo for the profiling runs
+  only; (b) `sudo sysctl kernel.perf_event_paranoid=1` for the session and
+  restore 4 afterwards. Suggestion: (a).
+- **Q8 – 1 GiB huge pages (T-11):** reserving them reliably needs a boot
+  parameter (root) and locks that memory away from other programs (including
+  the node) even while the miner is off. Try it at all? Suggestion: only if
+  T-09 ends up with 3+ lanes and the profile shows significant TLB walks.
+- **Q9 – Pausing mainnet mining for benchmarks:** the benchmarks need the
+  running miner stopped for their duration (about 1.5–2 hours for T-09 with
+  repeats, less for the others). OK to stop and restart it as part of T-08 to T-11? Suggestion: yes,
+  logged in each task.
+

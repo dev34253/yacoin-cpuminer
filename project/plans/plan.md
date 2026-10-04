@@ -217,6 +217,9 @@ See `project/todo/`. Order:
 5. T-05 (integration tests).
 6. T-06 (performance).
 7. T-07 (mainnet).
+8. Phase 2, performance (§12): T-08 (profile) → T-09 (lanes) → T-10 (AVX2
+   core, only if T-09 shows mixing is the bottleneck) and T-11 (smaller levers,
+   after T-09).
 
 ## 10. Risks
 
@@ -252,3 +255,97 @@ at 6859321. It found F1–F9 correct in substance. Its findings, all applied:
 - `getblockheader … false` for test vectors;
 - coinbase maturity is 6 blocks;
 - several line references.
+
+## 12. Performance optimization (phase 2, planned 2026-10-03)
+
+Reviewed by an independent subagent on 2026-10-03; its corrections are
+worked in below.
+
+### Where the time goes (estimates; T-08 measures them)
+
+- One hash at N-factor 21 is scrypt ROMix with N = 2^22, r = 1. The unit is a
+  128-byte **chunk** of two 64-byte ChaCha/8 blocks, and the two halves depend
+  on each other serially (`chacha.h:8`).
+  - **Fill pass:** write 2^22 chunks sequentially (512 MiB).
+  - **Read pass:** 2^22 random chunk reads, each index known only after the
+    previous chunk was mixed (`romix-template.h:85-106`).
+- **Compute is about half the time of one thread.** The AVX `ChunkMix`
+  (`mix_chacha-avx.h:145-246`) is one serial dependency chain of roughly
+  250–270 cycles (~65 ns), called 2 · 2^22 times per hash: ≈ 0.55 s.
+  - Evidence: AVX is +10% over SSE2, which it could not be if arithmetic did
+    not matter.
+  - The rest, ≈ 0.5 s, is DRAM wait in the read pass. The fill pass (about a
+    quarter of the time) is compute-bound.
+- **SMT already overlaps work.** Two hardware threads per core act like two
+  lanes: 4 → 8 threads gave +64% (2.79 → 4.58 H/s).
+- **Shared memory contention.** The rate per thread already falls from 0.945
+  (1 thread) to 0.70 (4 threads, one per core), so the memory system is under
+  pressure. Possible causes: loaded latency, bank conflicts, single-channel
+  RAM (unknown; `dmidecode` needs root), or the clock dropping.
+- **Traffic is about 1.5 GiB per hash.** The fill pass writes 512 MiB and also
+  reads 512 MiB first (stores read each line before writing it), and the read
+  pass reads 512 MiB. At 4.6 H/s that is ≈ 7.4 GB/s. Random 128-byte reads reach
+  far less than DDR4's ~42 GB/s streaming peak (perhaps 15–20 GB/s, less on
+  single channel), so bandwidth may become the ceiling before all the latency
+  is hidden.
+- `-march=native` already selects the ChaCha/8 AVX code. There is no AVX2
+  ChaCha in scrypt-jane. Endian conversion is a no-op, and Keccak/PBKDF2 is
+  negligible.
+
+### Approach
+
+1. **T-08 Profile:** measure compute versus memory, latency, bandwidth, clock
+   and the DIMM setup before any change.
+2. **T-09 Lanes with prefetch:** each worker computes L independent hashes in
+   the miner's own ROMix copy (calling scrypt-jane's `ChunkMix`, copied files
+   unchanged). As soon as a lane's next index is known, it prefetches both
+   cache lines of that chunk. This overlaps memory waits, not compute: the
+   asm `ChunkMix` cannot be interleaved. Probably L = 3 is needed to cover the
+   latency.
+3. **T-10 Fused 2-lane AVX2 ChunkMix:** lane A in the low and lane B in the high
+   128 bits of each ymm register (`vpshufb`/`vpshufd` work per 128-bit half,
+   so this is close to a transliteration of the existing AVX code). This gives
+   compute overlap as well as memory overlap. It is probably the larger win.
+   The "word i of 8 lanes" transposed layout is dropped: 8 tables per thread
+   breaks the memory budget.
+4. **T-11 Smaller levers,** each only if T-08/T-09 show it matters: thread
+   pinning, 1 GiB huge pages (only at L ≥ 3, when TLB walks show up), and a
+   lookup gap (only if more lanes are wanted but memory blocks them).
+
+### Rules for all optimization tasks
+
+- **Correctness:**
+  - Every optimized path passes the known-answer tests (five mainnet blocks
+    at N-factor 21, three test-chain blocks at N-factor 4) **for every lane**.
+  - A differential test (random headers *and* nonces, a different header per
+    lane) matches the reference hash.
+  - Before every submit, the miner **recomputes the reference hash of the
+    exact header it is about to submit** (about 1 s, roughly once per block).
+    This catches a wrong lane-to-nonce mapping.
+- **Measurement method:**
+  - Same machine state for A and B: on AC power, governor/EPP recorded,
+    the mainnet miner stopped (Q9), the node idle (note any new block during a
+    run).
+  - Each configuration at least 180 s, with the first 30 s discarded (laptop
+    turbo/PL2), and **at least 3 interleaved repeats (A/B/A/B)**. Report the
+    median and min–max.
+  - Sample the CPU clock (`scaling_cur_freq`) and temperature during runs.
+  - Re-measure the 1-lane baseline in the same session.
+  - Treat a change as real only if it beats the baseline by more than the
+    spread between repeats.
+- **Memory budget:** lanes × threads × 0.5 GiB ≤ 12 GiB (about 20 GiB is
+  free with the node running). Benchmark grids stay inside it. Compare at
+  equal hardware threads *and* at equal memory (for example 4 threads × 2
+  lanes versus 8 × 1).
+- **Keep the reference path:** `--lanes 1` with the plain scrypt-jane code
+  stays available as the fallback.
+- **Out of scope:** Keccak/PBKDF2, RPC and coordinator code, GPU work.
+
+### Expected payoff
+
+- At 1 thread, up to about 1.9× if all memory wait is hidden.
+- At the real operating point (7–8 threads, SMT already overlapping work,
+  shared memory contention), a more honest guess is **+15–40%**, until T-08
+  measures it. That is roughly 4.2 → 5–6 H/s, or 70 h → 50–60 h per block.
+- A per-watt claim needs RAPL energy counters, which are root-only (Q7).
+
