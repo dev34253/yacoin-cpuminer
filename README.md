@@ -59,7 +59,7 @@ these at start-up, and that the node's `Nfactor` equals `--nfactor` (21).
 ## Run
 
 ```sh
-build/yacoin-cpuminer                      # defaults: 7 threads, nice 10, N-factor 21
+build/yacoin-cpuminer                      # defaults: 7 threads x 2 lanes (7 GiB), nice 10, N-factor 21
 build/yacoin-cpuminer --threads 4          # fewer threads
 build/yacoin-cpuminer --check-work         # one getwork, decode + sanity checks, no mining
 build/yacoin-cpuminer --help
@@ -183,7 +183,7 @@ binary is not a low-difficulty build.
 
 ## Performance
 
-### Lanes (T-09, measured 2026-10-04)
+### Lanes and the fused AVX2 mix (T-09, T-10, measured 2026-10-04)
 
 Same laptop, mainnet miner stopped, node idle; `scripts/bench.sh` (plan §12
 method): 180 s per run with the first 30 s discarded, 3 interleaved repeats,
@@ -199,13 +199,26 @@ median and min–max; AC power, governor `powersave`, EPP
 | 7 × 2, prefetch nta | 7 GiB | 4.991 | 4.959–5.004 | +20 % | 58.4 h |
 | 7 × 3 | 10.5 GiB | 5.131 | 5.096–5.217 | +23 % | 56.8 h |
 | 8 × 2 | 8 GiB | 5.452 | 5.410–5.455 | +31 % | 53.4 h |
+| **7 × 2 fused2** | **7 GiB** | **5.972** | 5.956–5.975 | **+44 %** | **48.8 h** |
+| 7 × 3 fused2 | 10.5 GiB | 6.064 | 6.050–6.070 | +46 % | 48.0 h |
+| 4 × 4 fused2 | 8 GiB | 5.608 | 5.602–5.610 | +35 % | 51.9 h |
+| 6 × 4 fused2 | 12 GiB | 6.598 | 6.586–6.601 | +59 % | 44.1 h |
 
-- **Default: 7 threads × 2 lanes** (7 GiB). A third lane adds nothing beyond
-  the spread; 8 threads would take the last free hardware thread (Q5).
+- **Default: 7 threads × 2 lanes, `mix=auto`** (= fused2 on an AVX2 build;
+  7 GiB): 5.97 H/s, about **49 hours per block** on average, versus 70 h
+  before. fused2 runs two lanes in the two 128-bit halves of each AVX2
+  register (`src/hash/chacha_avx2x2.c`, bit-identical to scrypt-jane's AVX
+  ChunkMix); it beats plain 2 lanes by 17 %.
+- **More rate for more memory:** `--threads 6 --lanes 4` (fused2 pairs with
+  prefetch lead time) gives 6.60 H/s (44 h/block) with one more hardware
+  thread free, but takes 12 GiB, the plan's memory budget. 7 × 3 adds only
+  1.5 % for 3.5 GiB more. Not the default because of the memory it holds
+  while the node and builds run.
 - The gain comes from the prefetch: 7 × 2 *without* prefetch measured 4.06
   H/s in a 60 s exploratory run, no better than 7 × 1. `prefetcht0` beats
   `prefetchnta`.
-- `--lanes 1` keeps the plain scrypt-jane path.
+- `--lanes 1` keeps the plain scrypt-jane path; `--mix plain` the per-lane
+  scrypt-jane ChunkMix (also what a non-AVX2 build uses).
 
 ### Threads (T-06, measured 2026-10-03)
 
@@ -247,7 +260,7 @@ during the runs). `scripts/bench.sh` reproduces the miner rows,
 - **vs the node's built-in miner**: +47 % at 1 thread, +76 % at 4 threads
   (scratch buffer reused instead of 512 MiB malloc/free per hash, AVX, huge
   pages).
-- Memory: 512 MiB per thread (7 threads = 3.5 GiB); the start-up check
+- Memory (then): 512 MiB per thread (7 threads = 3.5 GiB); the start-up check
   wants that plus 1 GiB free. Temperatures stayed below 60 °C.
 
 ## Licence

@@ -34,9 +34,12 @@ find_package(Threads REQUIRED)
 # ---- scrypt-jane (copied from yacoin, see third_party/scrypt-jane/SOURCE.md) ----
 # src/hash/yac_scrypt.c #includes the unmodified scrypt-jane.c and adds the
 # caller-owned-scratch entry point, so the mix code exists only once.
-add_library(yac_scrypt STATIC src/hash/yac_scrypt.c)
+# src/hash/chacha_avx2x2.c is the fused multi-lane AVX2 ChunkMix (T-10); it
+# compiles to nothing unless the flags enable AVX2 (-march=native on an AVX2
+# CPU), and yac_scrypt.c uses it only then.
+add_library(yac_scrypt STATIC src/hash/yac_scrypt.c src/hash/chacha_avx2x2.c)
 target_include_directories(yac_scrypt PUBLIC src/hash third_party/scrypt-jane)
-target_compile_definitions(yac_scrypt PRIVATE SCRYPT_KECCAK512 SCRYPT_CHACHA SCRYPT_CHOOSE_COMPILETIME)
+target_compile_definitions(yac_scrypt PRIVATE SCRYPT_KECCAK512 SCRYPT_CHACHA SCRYPT_CHOOSE_COMPILETIME YAC_FUSED_MIX)
 target_compile_options(yac_scrypt PRIVATE -O3 ${YAC_ARCH_FLAGS} -w)
 
 # ---- miner core (everything except main) ----

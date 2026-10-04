@@ -106,15 +106,23 @@ static int check_work(const Options& o)
     return ok ? 0 : 1;
 }
 
-// Fused mixes need an AVX2 build and at least 2 lanes; refuse a setting
-// that would silently run the plain mix (and mislabel a benchmark).
+// The mix actually used: auto = fused2 when compiled in and lanes >= 2.
+static std::string effective_mix(const Options& o)
+{
+    if (o.mix != "auto") return o.mix;
+    return fused_mix_available() && o.lanes >= 2 ? "fused2" : "plain";
+}
+
+// An explicit fused mix needs an AVX2 build and at least 2 lanes; refuse a
+// setting that would silently run the plain mix (and mislabel a benchmark).
 static bool lane_options_ok(const Options& o)
 {
-    if (o.mix != "plain" && !fused_mix_available()) {
+    if (o.mix == "auto" || o.mix == "plain") return true;
+    if (!fused_mix_available()) {
         log_error("--mix " + o.mix + " needs a build with AVX2 (-march=native on an AVX2 CPU); this build has none");
         return false;
     }
-    if (o.mix != "plain" && o.lanes < 2) {
+    if (o.lanes < 2) {
         log_error("--mix " + o.mix + " needs --lanes 2 or more");
         return false;
     }
@@ -124,15 +132,16 @@ static bool lane_options_ok(const Options& o)
 static unsigned lane_flags(const Options& o)
 {
     unsigned f = o.prefetch == "nta" ? kPrefetchNta : o.prefetch == "none" ? kPrefetchNone : kPrefetchT0;
-    if (o.mix == "fused2") f |= kMixFused2;
-    if (o.mix == "fused4") f |= kMixFused4;
+    const std::string m = effective_mix(o);
+    if (m == "fused2") f |= kMixFused2;
+    if (m == "fused4") f |= kMixFused4;
     return f;
 }
 
 static int benchmark(const Options& o)
 {
     log_info("benchmark: " + std::to_string(o.threads) + " threads x " + std::to_string(o.lanes) + " lanes (prefetch " +
-             o.prefetch + ", mix " + o.mix + "), N-factor " + std::to_string(o.nfactor) + ", " +
+             o.prefetch + ", mix " + effective_mix(o) + "), N-factor " + std::to_string(o.nfactor) + ", " +
              fmt_double(o.bench_seconds, 0) + " s (first " + fmt_double(o.bench_warmup, 0) + " s not counted), " + scrypt_variant() + ", huge pages " +
              (o.huge_pages ? "requested" : "off") + ", nice " + std::to_string(o.nice));
     if (!lane_options_ok(o) || !memory_ok(o, false)) return 1;
@@ -147,7 +156,7 @@ static int benchmark(const Options& o)
         log_info("at mainnet minimum difficulty (1e0fffff): expected " + fmt_double(hours, 1) + " h per block");
     }
     std::printf("BENCH threads=%d lanes=%d mix=%s prefetch=%s nfactor=%u hugepages=%d total_hps=%.4f\n", o.threads,
-                o.lanes, o.mix.c_str(), o.prefetch.c_str(), o.nfactor, o.huge_pages ? 1 : 0, total);
+                o.lanes, effective_mix(o).c_str(), o.prefetch.c_str(), o.nfactor, o.huge_pages ? 1 : 0, total);
     return 0;
 }
 
@@ -155,7 +164,7 @@ static int mine(const Options& o)
 {
     log_info("yacoin-cpuminer " + std::string(YAC_MINER_VERSION) + " (" + scrypt_variant() + "), node " +
              o.rpc.describe() + ", " + std::to_string(o.threads) + " threads x " + std::to_string(o.lanes) +
-             " lanes (mix " + o.mix + ", prefetch " + o.prefetch + "), N-factor " + std::to_string(o.nfactor) +
+             " lanes (mix " + effective_mix(o) + ", prefetch " + o.prefetch + "), N-factor " + std::to_string(o.nfactor) +
              ", nice " + std::to_string(o.nice) + ", huge pages " + (o.huge_pages ? "on" : "off"));
     if (o.rpc.user.empty() || o.rpc.password.empty())
         log_warn("no rpcuser/rpcpassword configured (config file " + o.conf + ")");

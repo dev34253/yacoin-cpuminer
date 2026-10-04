@@ -36,10 +36,11 @@ Mining:
                         reference re-hash before a submit)
   --prefetch HINT       with lanes > 1: prefetch hint for each lane's next
                         random chunk: t0 (default), nta or none
-  --mix KIND            with lanes > 1: plain (scrypt-jane's ChunkMix for each
-                        lane, default), fused2 (AVX2: two lanes per
-                        instruction stream) or fused4 (two fused pairs
-                        interleaved); fused needs an AVX2 build. Use lanes
+  --mix KIND            with lanes > 1: auto (default: fused2 on an AVX2 build,
+                        else plain), plain (scrypt-jane's ChunkMix for each
+                        lane), fused2 (AVX2: two lanes per instruction
+                        stream) or fused4 (two fused pairs interleaved);
+                        fused needs an AVX2 build. Use lanes
                         = 2 x the group (fused2: 4, fused4: 8) to give the
                         prefetch lead time
   --nice N              process nice level (default 10; 0 = leave unchanged)
@@ -183,8 +184,8 @@ Options parse_options(int argc, char** argv, bool read_files)
     if (o.lanes < 1 || o.lanes > 8) throw std::invalid_argument("--lanes must be 1..8");
     if (o.prefetch != "t0" && o.prefetch != "nta" && o.prefetch != "none")
         throw std::invalid_argument("--prefetch must be t0, nta or none");
-    if (o.mix != "plain" && o.mix != "fused2" && o.mix != "fused4")
-        throw std::invalid_argument("--mix must be plain, fused2 or fused4");
+    if (o.mix != "auto" && o.mix != "plain" && o.mix != "fused2" && o.mix != "fused4")
+        throw std::invalid_argument("--mix must be auto, plain, fused2 or fused4");
     if (o.nfactor > 30) throw std::invalid_argument("--nfactor must be 0..30");
     if (o.nice < 0 || o.nice > 19) throw std::invalid_argument("--nice must be 0..19");
     if (o.tip_poll_s < 0.1 || o.work_refresh_s < 1 || o.retry_s < 0.1 || o.stats_s < 1 || o.bench_seconds < 1)

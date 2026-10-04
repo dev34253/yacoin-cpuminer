@@ -21,7 +21,7 @@ credentials from the miner config and passes them to curl on stdin.
 | Keypool not empty | same `getinfo` → `keypoolsize` | > 0. Every `getwork` fetch reserves a key; an empty keypool with a locked wallet may crash the node (plan F12). Refill on the node with `keypoolrefill` if needed. |
 | N-factor | `scripts/rpc-readonly.sh getmininginfo` → `Nfactor` | 21 |
 | Wallet backed up | (owner) | a recent backup of `wallet.dat`; rewards go to the node's wallet |
-| Memory | `free -g` | threads × 512 MiB + 1 GiB headroom available |
+| Memory | `free -g` | threads × lanes × 512 MiB + 512 MiB (submit check) + 1 GiB headroom available (7 × 2: 8.5 GiB) |
 
 The miner repeats the N-factor, wallet, keypool, peer and memory checks at
 start-up and refuses to start on a locked wallet, a wrong N-factor or too
@@ -63,12 +63,14 @@ cd ~/projects/cpu-miner
 build/yacoin-cpuminer 2>&1 | tee -i -a ~/yacoin-cpuminer.log
 ```
 
-Defaults: 7 threads (leaves one of the 8 hardware threads free, Q5), nice
-10, N-factor 21, huge pages requested. Measured (T-06, README
-"Performance"): 7 threads ≈ 4.15 H/s → on average **one block per ~70
-hours** (random: it can take much longer or come much sooner); 4 threads ≈
-2.8 H/s (~104 h). Memory: 512 MiB per thread (3.5 GiB at 7).
-Fewer threads: `--threads 4` (or `threads=` in miner.conf). The nice level
+Defaults: 7 threads (leaves one of the 8 hardware threads free, Q5) × 2
+lanes with the fused AVX2 mix (T-09, T-10), nice 10, N-factor 21, huge
+pages requested. Measured (README "Performance"): 7 × 2 ≈ 5.97 H/s → on
+average **one block per ~49 hours** (random: it can take much longer or come
+much sooner); the old 7 × 1 gave 4.16 H/s (~70 h). Memory: 512 MiB per lane
+(7 GiB at 7 × 2, plus 512 MiB for the re-hash before a submit).
+Fewer threads: `--threads 4` (or `threads=` in miner.conf); less memory:
+`--lanes 1` (the old single-hash path). The nice level
 applies to all mining threads; `--nice 19` for the lowest priority.
 
 Stop: Ctrl-C, or `pkill -INT yacoin-cpuminer` from another terminal. It
