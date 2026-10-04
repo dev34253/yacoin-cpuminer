@@ -292,6 +292,27 @@ worked in below.
   ChaCha in scrypt-jane. Endian conversion is a no-op, and Keccak/PBKDF2 is
   negligible.
 
+### Measured in T-08 (2026-10-03; supersedes the estimates above)
+
+- **Compute share** (time per hash with an L2-resident table ÷ with the
+  512 MiB table): **78 %** at 1 thread, **92 %** at 4, **~100 %** at 7. At
+  the operating point the SMT sibling already hides the DRAM wait: the miner
+  is **compute-bound**, not memory-bound. "Compute is about half" was wrong.
+- **Clock:** 3.04 GHz with one busy core, **2.06 GHz with 4 or more**
+  (cycles / task-clock), at ≤ 60 °C and far below PL1. A platform cap
+  (profile `balanced`); it explains most of the per-thread drop that this
+  section blamed on memory contention.
+- **Memory:** loaded latency 73–93 ns; 7.5 GB/s DRAM traffic at 4.17 H/s;
+  the RAM peaks at 19 GB/s sequential and 11.5 GB/s for random 128-byte
+  chunks, so it is almost certainly single channel (dmidecode needs root).
+  Bandwidth ceiling for this hash roughly 8–10 H/s.
+- **TLB walks:** 0.0 % of cycles with 2 MiB THP.
+- **Consequences:** T-09's prefetch lanes help only at 1–4 threads; expect
+  about nothing at 7–8 threads. T-10's fused AVX2 pairs (two lanes per
+  vector µop) attack the real limit and are the main lever. The order stays
+  (T-10 uses T-09's lane loop). 1 GiB pages (T-11) gain nothing unless a
+  lane setting shows TLB walks. Details: `project/done/T-08-profile-hash.md`.
+
 ### Approach
 
 1. **T-08 Profile:** measure compute versus memory, latency, bandwidth, clock

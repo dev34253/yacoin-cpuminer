@@ -2,7 +2,8 @@
 # Benchmark matrix (plan §12 method): H/s at an N-factor for several
 # configurations, run in interleaved repeats (A B C A B C ...), under nice 10.
 # No node RPC is used. Each run discards its first --warmup seconds (laptop
-# turbo/PL2) and samples the CPU clock (mean scaling_cur_freq over all CPUs),
+# turbo/PL2) and samples the CPU clock (mean scaling_cur_freq of the THREADS
+# busiest CPUs; perf's cycles/task-clock in scripts/profile.sh is more exact),
 # the package temperature, the miner's huge-page use and the mainnet node's
 # CPU use. The machine state (AC power, governor, EPP, THP) is printed first.
 #
@@ -49,8 +50,9 @@ node_cpu_ticks() {  # utime+stime of all yacoind processes (clock ticks)
   echo $t
 }
 
-mean_mhz() {  # mean current clock over all CPUs
-  cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | awk '{s += $1; n++} END {if (n) printf "%.0f", s / n / 1000; else print 0}'
+mean_mhz() {  # mean current clock of the $1 fastest CPUs (the busy ones; idle CPUs sit at the minimum)
+  cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | sort -rn | head -n "$1" |
+    awk '{s += $1; n++} END {if (n) printf "%.0f", s / n / 1000; else print 0}'
 }
 
 ac=$(cat /sys/class/power_supply/AC/online 2>/dev/null || echo "?")
@@ -97,7 +99,7 @@ for ((r = 1; r <= REPS; r++)); do
           t=$(( $(cat "$pkg_zone") / 1000 )); (( t > maxtemp )) && maxtemp=$t
           sumtemp=$((sumtemp + t)); ntemp=$((ntemp + 1))
         fi
-        summhz=$((summhz + $(mean_mhz))); nmhz=$((nmhz + 1))
+        summhz=$((summhz + $(mean_mhz "$n"))); nmhz=$((nmhz + 1))
       fi
       h=$(awk '/AnonHugePages/ {s += $2} END {print s+0}' /proc/$pid/smaps 2>/dev/null || echo 0)
       (( h > hugekb )) && hugekb=$h
