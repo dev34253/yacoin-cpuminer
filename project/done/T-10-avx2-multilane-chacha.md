@@ -4,7 +4,7 @@
 - Size: M
 - Owner: Claude (subagent)
 - Started: 2026-10-03
-- Finished:
+- Finished: 2026-10-04
 
 ## Goal
 Overlap compute as well as memory. One ChaCha/8 core is a single serial
@@ -34,8 +34,8 @@ count and no spills (plan §12).
 6. Reviewer subagent; commit; update README "Performance".
 
 ## Acceptance criteria
-- [ ] The fused core is bit-identical to the existing ChunkMix; all tests pass.
-- [ ] Enabled by default only if faster than T-09's best by more than the
+- [x] The fused core is bit-identical to the existing ChunkMix; all tests pass.
+- [x] Enabled by default only if faster than T-09's best by more than the
   run-to-run spread; table in the Log.
 
 ## Log
@@ -99,3 +99,8 @@ count and no spills (plan §12).
   Expected time per block 1,048,577 / 5.972 = 175,600 s ≈ **48.8 h**
   (was 70 h). 6 × 4 fused2 (6.60 H/s, 44 h) is faster but needs the whole
   12 GiB budget; left to the owner (README). 7 × 3 adds 1.5 % for 3.5 GiB.
+- **Deployed 2026-10-04 02:17:02** (commit c0adde4; `build/` rebuilt, tests
+  passed, mainnet miner restarted with the new defaults 7 × 2, mix auto =
+  fused2): first stats line 5.83 H/s, then 5.93 H/s, in line with the
+  benchmark's 5.97. The owner later switched the live miner to 6 × 4 fused2
+  (6.5–6.6 H/s; T-07 Log, 2026-10-04 06:45).
