@@ -183,6 +183,31 @@ binary is not a low-difficulty build.
 
 ## Performance
 
+### Thread pinning (T-11, measured 2026-10-04)
+
+`--affinity none|compact|spread` (config key `affinity`) pins each worker
+thread to one logical CPU. The SMT pairs come from `/sys` topology (on this
+laptop (0,4) (1,5) (2,6) (3,7)), and only CPUs the process may use are taken.
+- **compact** fills both SMT threads of a core, core by core. With 6 threads
+  that is three full cores and one idle core.
+- **spread** takes one thread per core first, then the second SMT threads.
+  With 6 threads that is CPUs 0–5: two cores with two workers, two cores with
+  one, and two logical CPUs free.
+
+Measured with the same method as below (3 interleaved repeats of 180 s):
+
+| Config | none | compact | spread |
+|---|---|---|---|
+| 6 × 4 fused2 | 6.615 (6.585–6.618) | 6.606 (6.601–6.642) | **6.667** (6.663–6.676), +0.8 % |
+| 7 × 2 fused2 | 5.971 (5.967–5.978) | – (same CPUs as spread) | 5.970 (5.969–5.981) |
+
+- The default stays `none`: at the 7 × 2 default, pinning changes nothing.
+- At 6 × 4, `spread` is a small but repeatable gain (+0.8 %; its slowest run
+  beats the fastest unpinned one), so the live miner uses `affinity=spread`.
+- 1 GiB pages and a lookup gap were not built. TLB walks take at most 1.6 %
+  of cycles even at 6 × 4, and more lanes add little (7 × 3 is +1.5 % over
+  7 × 2). Details are in `project/done/T-11-smaller-performance-levers.md`.
+
 ### Lanes and the fused AVX2 mix (T-09, T-10, measured 2026-10-04)
 
 Same laptop, mainnet miner stopped, node idle; `scripts/bench.sh` (plan §12

@@ -1,6 +1,9 @@
 // yacoin-cpuminer: worker threads, work coordination and submission. MIT licence.
 #include "miner/miner.h"
 
+#include <pthread.h>
+#include <sched.h>
+
 #include <algorithm>
 #include <cstring>
 #include <thread>
@@ -158,6 +161,19 @@ SubmitResult Submitter::submit(const Solution& s)
 
 // ------------------------------------------------------------------- Miner
 
+// T-11: pins the calling worker thread to cpus[index % size]; no-op if empty.
+static void pin_worker(const std::vector<int>& cpus, unsigned index)
+{
+    if (cpus.empty()) return;
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpus[index % cpus.size()], &set);
+    int rc = pthread_setaffinity_np(pthread_self(), sizeof set, &set);
+    if (rc != 0)
+        log_warn("worker " + std::to_string(index) + ": cannot pin to CPU " + std::to_string(cpus[index % cpus.size()]) +
+                 ": " + std::strerror(rc));
+}
+
 Miner::Miner(MinerConfig cfg, ApiFactory make_api, std::atomic<bool>& stop)
     : cfg_(cfg), make_api_(std::move(make_api)), stop_(stop), stats_(cfg.threads)
 {
@@ -181,6 +197,7 @@ void Miner::request_refresh(bool force)
 void Miner::worker(unsigned index)
 {
     if (stop_) return;  // stopped during start-up: do not allocate 512 MiB
+    pin_worker(cfg_.cpus, index);  // before allocating: first touch lands on this CPU's node
     std::unique_ptr<ScryptHasher> hasher;
     try {
         hasher = std::make_unique<ScryptHasher>(cfg_.nfactor, cfg_.huge_pages, cfg_.lanes, cfg_.lane_flags);
@@ -505,7 +522,7 @@ int Miner::run()
 
 double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool huge_pages,
                      std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s,
-                     unsigned lanes, unsigned lane_flags)
+                     unsigned lanes, unsigned lane_flags, const std::vector<int>& cpus)
 {
     // Each thread counts only hashes that finish after `warmup_s` (laptop
     // turbo/PL2 settles, plan §12). Its rate is measured from its first
@@ -522,6 +539,7 @@ double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool hu
     for (unsigned i = 0; i < threads; ++i) {
         ts.emplace_back([&, i] {
             bool counted_ready = false;
+            pin_worker(cpus, i);
             try {
                 ScryptHasher hasher(nfactor, huge_pages, lanes, lane_flags);
                 uint8_t headers[kMaxLanes][kHeaderSize];

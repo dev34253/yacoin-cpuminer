@@ -106,6 +106,30 @@ static int check_work(const Options& o)
     return ok ? 0 : 1;
 }
 
+// T-11: CPUs for --affinity (empty for none, if the topology is unknown, or
+// if there are more workers than usable CPUs). Worker i is pinned to
+// result[i % size] (miner.cpp pin_worker).
+static std::vector<int> worker_cpus(const Options& o)
+{
+    if (o.affinity == "none") return {};
+    std::set<int> usable = usable_cpus();
+    std::vector<int> order = usable.empty() ? std::vector<int>{}
+                                            : cpu_order(core_groups(read_cpu_siblings(), usable), o.affinity == "spread");
+    if (order.empty()) {
+        log_warn("--affinity: CPU topology not readable; threads are not pinned");
+        return {};
+    }
+    if (static_cast<size_t>(o.threads) > order.size()) {
+        log_warn("--affinity: " + std::to_string(o.threads) + " threads but only " + std::to_string(order.size()) +
+                 " usable CPUs; threads are not pinned");
+        return {};
+    }
+    std::string s;
+    for (int i = 0; i < o.threads; ++i) s += (i ? " " : "") + std::to_string(order[i]);
+    log_info("affinity " + o.affinity + ": worker CPUs " + s);
+    return order;
+}
+
 // The mix actually used: auto = fused2 when compiled in and lanes >= 2.
 static std::string effective_mix(const Options& o)
 {
@@ -141,13 +165,13 @@ static unsigned lane_flags(const Options& o)
 static int benchmark(const Options& o)
 {
     log_info("benchmark: " + std::to_string(o.threads) + " threads x " + std::to_string(o.lanes) + " lanes (prefetch " +
-             o.prefetch + ", mix " + effective_mix(o) + "), N-factor " + std::to_string(o.nfactor) + ", " +
+             o.prefetch + ", mix " + effective_mix(o) + ", affinity " + o.affinity + "), N-factor " + std::to_string(o.nfactor) + ", " +
              fmt_double(o.bench_seconds, 0) + " s (first " + fmt_double(o.bench_warmup, 0) + " s not counted), " + scrypt_variant() + ", huge pages " +
              (o.huge_pages ? "requested" : "off") + ", nice " + std::to_string(o.nice));
     if (!lane_options_ok(o) || !memory_ok(o, false)) return 1;
     std::vector<double> per;
     double total = run_benchmark(static_cast<unsigned>(o.threads), o.nfactor, o.bench_seconds, o.huge_pages, per, g_stop, o.bench_warmup,
-                                 static_cast<unsigned>(o.lanes), lane_flags(o));
+                                 static_cast<unsigned>(o.lanes), lane_flags(o), worker_cpus(o));
     std::string s;
     for (size_t i = 0; i < per.size(); ++i) s += (i ? " " : "") + fmt_double(per[i], 3);
     log_info("benchmark result: total " + fmt_double(total, 3) + " H/s, per thread [" + s + "]");
@@ -155,8 +179,8 @@ static int benchmark(const Options& o)
         double hours = expected_hashes(target_from_compact(0x1e0fffff)) / total / 3600.0;
         log_info("at mainnet minimum difficulty (1e0fffff): expected " + fmt_double(hours, 1) + " h per block");
     }
-    std::printf("BENCH threads=%d lanes=%d mix=%s prefetch=%s nfactor=%u hugepages=%d total_hps=%.4f\n", o.threads,
-                o.lanes, effective_mix(o).c_str(), o.prefetch.c_str(), o.nfactor, o.huge_pages ? 1 : 0, total);
+    std::printf("BENCH threads=%d lanes=%d mix=%s prefetch=%s affinity=%s nfactor=%u hugepages=%d total_hps=%.4f\n",
+                o.threads, o.lanes, effective_mix(o).c_str(), o.prefetch.c_str(), o.affinity.c_str(), o.nfactor, o.huge_pages ? 1 : 0, total);
     return 0;
 }
 
@@ -164,7 +188,7 @@ static int mine(const Options& o)
 {
     log_info("yacoin-cpuminer " + std::string(YAC_MINER_VERSION) + " (" + scrypt_variant() + "), node " +
              o.rpc.describe() + ", " + std::to_string(o.threads) + " threads x " + std::to_string(o.lanes) +
-             " lanes (mix " + effective_mix(o) + ", prefetch " + o.prefetch + "), N-factor " + std::to_string(o.nfactor) +
+             " lanes (mix " + effective_mix(o) + ", prefetch " + o.prefetch + ", affinity " + o.affinity + "), N-factor " + std::to_string(o.nfactor) +
              ", nice " + std::to_string(o.nice) + ", huge pages " + (o.huge_pages ? "on" : "off"));
     if (o.rpc.user.empty() || o.rpc.password.empty())
         log_warn("no rpcuser/rpcpassword configured (config file " + o.conf + ")");
@@ -205,6 +229,7 @@ static int mine(const Options& o)
     cfg.threads = static_cast<unsigned>(o.threads);
     cfg.lanes = static_cast<unsigned>(o.lanes);
     cfg.lane_flags = lane_flags(o);
+    cfg.cpus = worker_cpus(o);
     cfg.nfactor = o.nfactor;
     cfg.huge_pages = o.huge_pages;
     cfg.tip_poll_s = o.tip_poll_s;

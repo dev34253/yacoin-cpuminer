@@ -19,6 +19,8 @@ threads=7
 # prefetch=t0
 # Mix for lanes (T-10): auto = fused AVX2 pairs when built with AVX2.
 # mix=auto
+# Pin worker threads (T-11): none (default), compact or spread; see --help.
+# affinity=none
 # nice=10
 # nfactor=21
 # hugepages=1

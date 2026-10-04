@@ -25,6 +25,7 @@ struct Options {
     int lanes = kDefaultLanes;
     std::string prefetch = "t0";  // lanes: prefetch hint for the next chunk (t0, nta, none)
     std::string mix = "auto";     // lanes: auto (fused2 if compiled in), plain, fused2, fused4 (T-10)
+    std::string affinity = "none";  // T-11: pin workers: none, compact (fill SMT pairs), spread (one per core first)
     int nice = 10;
     unsigned nfactor = 21;
     double tip_poll_s = 5;       // getbestblockhash interval

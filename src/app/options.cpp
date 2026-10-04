@@ -19,7 +19,7 @@ Connection (settings: defaults < config files < command line):
   --conf FILE           miner config (default $XDG_CONFIG_HOME or ~/.config,
                         then yacoin-cpuminer/miner.conf):
                         rpchost, rpcport, rpcuser, rpcpassword, rpctimeout, threads, lanes,
-                        prefetch, mix, nice, nfactor, tip_poll, work_refresh, retry, stats_interval, hugepages
+                        prefetch, mix, affinity, nice, nfactor, tip_poll, work_refresh, retry, stats_interval, hugepages
                         ('#' starts a comment only at the start of a line)
   --yacoin-conf FILE    read rpcuser/rpcpassword/rpcport/rpcconnect from a node yacoin.conf
   --rpc-host HOST       default 127.0.0.1
@@ -50,6 +50,14 @@ Mining:
   --work-refresh SEC    fetch new work at least this often (default 300)
   --retry SEC           submit retry interval while the node has no peers (default 5)
   --stats-interval SEC  status line interval (default 60)
+  --affinity MODE       pin each worker thread to one logical CPU (Linux):
+                        none (default; the kernel schedules them), compact
+                        (both SMT threads of a core, core by core; with fewer
+                        threads than CPUs whole cores stay idle) or spread (the
+                        first SMT thread of every core, then the second ones).
+                        SMT pairs come from /sys topology; only CPUs the process
+                        may use (taskset/cpuset) are taken; with more threads
+                        than those CPUs nothing is pinned. Only workers are pinned
   --hugepages / --no-hugepages   ask for transparent huge pages (default on)
   --ignore-memory-check start even if threads x scratch exceeds available memory
   --max-blocks N        exit after N accepted blocks (for tests; default 0 = never)
@@ -105,6 +113,7 @@ static void apply_miner_keys(const std::map<std::string, std::string>& kv, Optio
         else if (k == "lanes") o.lanes = static_cast<int>(to_long(k, v));
         else if (k == "prefetch") o.prefetch = v;
         else if (k == "mix") o.mix = v;
+        else if (k == "affinity") o.affinity = v;
         else if (k == "nice") o.nice = static_cast<int>(to_long(k, v));
         else if (k == "nfactor") o.nfactor = static_cast<unsigned>(to_long(k, v));
         else if (k == "tip_poll") o.tip_poll_s = to_double(k, v);
@@ -161,6 +170,7 @@ Options parse_options(int argc, char** argv, bool read_files)
         else if (a == "--lanes") o.lanes = static_cast<int>(to_long(a, value()));
         else if (a == "--prefetch") o.prefetch = value();
         else if (a == "--mix") o.mix = value();
+        else if (a == "--affinity") o.affinity = value();
         else if (a == "--nice") o.nice = static_cast<int>(to_long(a, value()));
         else if (a == "--nfactor") o.nfactor = static_cast<unsigned>(to_long(a, value()));
         else if (a == "--tip-poll") o.tip_poll_s = to_double(a, value());
@@ -186,6 +196,8 @@ Options parse_options(int argc, char** argv, bool read_files)
         throw std::invalid_argument("--prefetch must be t0, nta or none");
     if (o.mix != "auto" && o.mix != "plain" && o.mix != "fused2" && o.mix != "fused4")
         throw std::invalid_argument("--mix must be auto, plain, fused2 or fused4");
+    if (o.affinity != "none" && o.affinity != "compact" && o.affinity != "spread")
+        throw std::invalid_argument("--affinity must be none, compact or spread");
     if (o.nfactor > 30) throw std::invalid_argument("--nfactor must be 0..30");
     if (o.nice < 0 || o.nice > 19) throw std::invalid_argument("--nice must be 0..19");
     if (o.tip_poll_s < 0.1 || o.work_refresh_s < 1 || o.retry_s < 0.1 || o.stats_s < 1 || o.bench_seconds < 1)

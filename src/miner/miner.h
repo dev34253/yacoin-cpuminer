@@ -101,6 +101,7 @@ struct MinerConfig {
     unsigned nfactor = 21;
     bool huge_pages = true;
     bool verify_before_submit = true;  // recompute the reference hash of the exact submitted header
+    std::vector<int> cpus;  // T-11: worker i is pinned to cpus[i % size] (empty = not pinned)
     double tip_poll_s = 5;
     double work_refresh_s = 300;
     double retry_s = 5;
@@ -166,6 +167,7 @@ bool verify_solution(const Solution& s, ScryptHasher& reference, std::string& wh
 // Each thread computes `lanes` hashes per call (T-09).
 double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool huge_pages,
                      std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s = 0,
-                     unsigned lanes = 1, unsigned lane_flags = kDefaultLaneFlags);
+                     unsigned lanes = 1, unsigned lane_flags = kDefaultLaneFlags,
+                     const std::vector<int>& cpus = {});
 
 }  // namespace yac
