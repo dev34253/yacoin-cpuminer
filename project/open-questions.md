@@ -2,7 +2,8 @@
 
 ## Answers (owner, 2026-10-03)
 
-- **Q1:** wait with the GitHub repository; local only for now.
+- **Q1:** first wait; then (2026-10-04) a public repository on dev34253:
+  https://github.com/dev34253/yacoin-cpuminer.
 - **Q2:** go ahead with implementation.
 - **Q3:** option (c): RPC credentials in a separate miner config file,
   `~/.config/yacoin-cpuminer/miner.conf` (mode 600, directory 700), copied
