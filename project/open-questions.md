@@ -38,6 +38,17 @@
 - **Q6 – Always on?** Run it as a systemd service that starts at boot, or
   only by hand?
 
+## Phase 2 answers (owner, 2026-10-03)
+
+- **Q7:** option 3, `cap_perfmon` on `/usr/bin/perf` (set by the owner;
+  `getcap` shows `cap_perfmon=ep`). `perf` with per-process and `uncore_imc`
+  counters now works without sudo. Remove with `sudo setcap -r /usr/bin/perf`;
+  it is lost when the `linux-perf` package updates. `dmidecode` and RAPL still
+  need root (not used unless the owner runs them).
+- **Q9:** yes, test as many changes as needed; the mainnet miner may be
+  stopped for benchmarks and must be restarted afterwards.
+- **Q8:** still open (decide only if T-11's gate is met).
+
 ## Phase 2 (performance) questions
 
 - **Q7 – sudo for profiling (T-08):** `kernel.perf_event_paranoid` is 4,
