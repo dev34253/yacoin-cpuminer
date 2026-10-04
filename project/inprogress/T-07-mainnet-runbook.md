@@ -55,3 +55,8 @@ Run the miner against the mainnet node safely, with a runbook.
   0.57–0.63 H/s each, AVX, huge pages, nice 10), expected 71 h per block;
   load average about 7. Supervision continues; T-07 stays in progress until
   the run has been watched for a few hours.
+- **2026-10-04 06:45:20: owner chose 6 threads × 4 lanes (fused2)** in
+  `~/.config/yacoin-cpuminer/miner.conf` (`threads=6`, `lanes=4`; the code
+  defaults stay 7 × 2). Memory 12.50 GiB (about 8 GiB left available).
+  First stats: 6.33 H/s, then 6.53 H/s, expected about 45 h per block
+  (T-10 benchmark: 6.60 H/s). The previous 7 × 2 run ended at 6.00 H/s.
