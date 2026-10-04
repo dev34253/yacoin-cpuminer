@@ -60,3 +60,12 @@ Run the miner against the mainnet node safely, with a runbook.
   defaults stay 7 × 2). Memory 12.50 GiB (about 8 GiB left available).
   First stats: 6.33 H/s, then 6.53 H/s, expected about 45 h per block
   (T-10 benchmark: 6.60 H/s). The previous 7 × 2 run ended at 6.00 H/s.
+- **2026-10-04 07:00: power profile tried and reverted.** `powerprofilesctl set
+  performance` (no sudo needed) gave no gain: the miner's effective clock,
+  measured with `perf stat -e cycles,task-clock -p <pid>`, was 1.692 GHz under
+  performance, 1.692 under balanced and 1.691 under performance again (A/B/A,
+  20 s each, 6 × 4 fused2, about 60–65 °C). The 2.06 GHz all-core figure from
+  T-08 was measured with the old 128-bit AVX code. The fused2 core uses
+  256-bit AVX2, and the lower clock is most likely the CPU's AVX2 frequency
+  offset, which the platform profile does not change. The hash rate stayed at
+  about 6.6 H/s. Profile set back to `balanced`.
