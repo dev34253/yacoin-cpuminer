@@ -13,6 +13,10 @@ rpcpassword=CHANGE_ME
 
 # Mining
 threads=7
+# Hashes per thread computed together (T-09); each lane needs its own
+# 512 MiB, so memory = threads x lanes x 512 MiB.
+# lanes=2
+# prefetch=t0
 # nice=10
 # nfactor=21
 # hugepages=1

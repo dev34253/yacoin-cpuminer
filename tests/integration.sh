@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # End-to-end test on the private low-difficulty chain (plan §7.4, §7.5; task T-05).
 #
-#   tests/integration.sh [--keep-running]
+#   [YAC_MINER=build-dev/yacoin-cpuminer] [YAC_MINER_ARGS="--lanes 3"] tests/integration.sh [--keep-running]
 #
+# YAC_MINER picks another miner binary (default build/yacoin-cpuminer);
+# YAC_MINER_ARGS adds miner options to every run (e.g. lanes, T-09).
 # Needs: build/yacoin-cpuminer (scripts/build.sh) and the test-chain binaries
 # (tests/testchain.sh install). Starts a FRESH two-node test chain, then:
 #   A. accept   – two separate miner runs, 5 blocks each; every accepted hash is
@@ -19,7 +21,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TC="$ROOT/tests/testchain.sh"
-MINER="$ROOT/build/yacoin-cpuminer"
+MINER="${YAC_MINER:-$ROOT/build/yacoin-cpuminer}"
+[[ $MINER == /* ]] || MINER="$ROOT/$MINER"
 OUT="$ROOT/testchain/integration"
 KEEP=0
 [[ "${1:-}" == "--keep-running" ]] && KEEP=1
@@ -29,6 +32,8 @@ mkdir -p "$OUT"
 rm -f "$OUT"/*.log
 CONF1="$("$TC" conf 1)"
 MINER_ARGS=(--conf "$CONF1" --nfactor 4 --nice 10 --tip-poll 1 --retry 2 --stats-interval 20)
+# shellcheck disable=SC2206
+[[ -n "${YAC_MINER_ARGS:-}" ]] && MINER_ARGS+=(${YAC_MINER_ARGS})
 
 FAILS=0
 MINER_PID=""

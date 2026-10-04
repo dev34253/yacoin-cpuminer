@@ -7,7 +7,8 @@ searches nonces.
 
 - PoW hash: the node's scrypt-jane (Keccak-512 + ChaCha20/8, N = 2^(Nfactor+1),
   r = p = 1) over the 84-byte version-7 header. At mainnet's N-factor 21 every
-  hash needs **512 MiB** of memory, so each thread allocates 512 MiB once.
+  hash needs **512 MiB** of memory. Each thread computes several hashes
+  together ("lanes", default 2), each with its own 512 MiB allocated once.
 - Proven against real mainnet blocks (known-answer tests) and a private test
   chain (integration test). Plan and facts: `project/plans/plan.md`.
 
@@ -142,12 +143,18 @@ tests/integration.sh             # end-to-end on a private test chain (~5-15 min
 
 - `test_hash`: the scrypt hash at N-factor 21 of five real mainnet version-7
   headers (heights 1,890,000 – 1,964,617) equals their block hashes; three
-  test-chain blocks at N-factor 4 likewise.
+  test-chain blocks at N-factor 4 likewise. The multi-lane path gives the
+  same hashes in every lane position (1–8 lanes at N-factor 4, 2–4 at 21)
+  and matches the reference on random headers (a different one per lane,
+  also partial batches).
 - `test_getwork`: real `getwork` replies from the test chain decode to
   exactly the header the node logged (`raw_block_header_hex`); encoding a
   nonce changes only the nonce word.
 - `test_target`, `test_rpc`, `test_miner` (nonce slicing, stale work,
   submit/retry logic, an in-process node stand-in), `test_util`.
+- Before every submit the miner re-hashes the exact header it sends with the
+  plain one-lane scrypt-jane path and drops the solution (`VERIFY FAILED` in
+  the stats) if it differs.
 - `tests/integration.sh`: two linked low-difficulty nodes; the miner's blocks
   are accepted by both; stale work after another node's block; a submit
   refused while the node has no peers is retried and accepted.
@@ -176,6 +183,32 @@ binary is not a low-difficulty build.
 
 ## Performance
 
+### Lanes (T-09, measured 2026-10-04)
+
+Same laptop, mainnet miner stopped, node idle; `scripts/bench.sh` (plan §12
+method): 180 s per run with the first 30 s discarded, 3 interleaved repeats,
+median and min–max; AC power, governor `powersave`, EPP
+`balance_performance`, huge pages on. Config = threads × lanes.
+
+| Config | Memory | Median H/s | Min–max | vs 7 × 1 | Expected time per block* |
+|---|---|---|---|---|---|
+| 7 × 1 (old default) | 3.5 GiB | 4.160 | 4.152–4.162 | – | 70.0 h |
+| 8 × 1 | 4 GiB | 4.583 | 4.582–4.595 | +10 % | 63.6 h |
+| 4 × 2 | 4 GiB | 3.614 | 3.591–3.625 | −13 % | 80.6 h |
+| **7 × 2** | **7 GiB** | **5.104** | 5.098–5.127 | **+23 %** | **57.1 h** |
+| 7 × 2, prefetch nta | 7 GiB | 4.991 | 4.959–5.004 | +20 % | 58.4 h |
+| 7 × 3 | 10.5 GiB | 5.131 | 5.096–5.217 | +23 % | 56.8 h |
+| 8 × 2 | 8 GiB | 5.452 | 5.410–5.455 | +31 % | 53.4 h |
+
+- **Default: 7 threads × 2 lanes** (7 GiB). A third lane adds nothing beyond
+  the spread; 8 threads would take the last free hardware thread (Q5).
+- The gain comes from the prefetch: 7 × 2 *without* prefetch measured 4.06
+  H/s in a 60 s exploratory run, no better than 7 × 1. `prefetcht0` beats
+  `prefetchnta`.
+- `--lanes 1` keeps the plain scrypt-jane path.
+
+### Threads (T-06, measured 2026-10-03)
+
 Measured 2026-10-03 on this laptop (Intel i5-8300H, 4 cores / 8 threads,
 30 GiB RAM, THP mode `madvise`) at N-factor 21, `nice 10`, 90 s per run after
 a warm-up hash, with the mainnet node running alongside (idle: 0–4 % CPU
@@ -203,7 +236,7 @@ during the runs). `scripts/bench.sh` reproduces the miner rows,
 
 \* 1,048,577 hashes per block at mainnet's fixed minimum difficulty `1e0fffff` (plan §4) ÷ rate.
 
-- **Default: 7 threads** (owner decision Q5, confirmed): 4.15 H/s, about
+- **Default then: 7 threads** (owner decision Q5, confirmed): 4.15 H/s, about
   70 hours per block on average (blocks arrive randomly: some much sooner,
   some much later). The 8th thread would add 10 % (4.58 H/s) but takes the
   last free hardware thread. With 4 threads (2.79 H/s, 104 h/block) the

@@ -307,11 +307,19 @@ worked in below.
   chunks, so it is almost certainly single channel (dmidecode needs root).
   Bandwidth ceiling for this hash roughly 8–10 H/s.
 - **TLB walks:** 0.0 % of cycles with 2 MiB THP.
-- **Consequences:** T-09's prefetch lanes help only at 1–4 threads; expect
-  about nothing at 7–8 threads. T-10's fused AVX2 pairs (two lanes per
-  vector µop) attack the real limit and are the main lever. The order stays
-  (T-10 uses T-09's lane loop). 1 GiB pages (T-11) gain nothing unless a
-  lane setting shows TLB walks. Details: `project/done/T-08-profile-hash.md`.
+- **Consequences (as first drawn in T-08):** T-09's prefetch lanes help only
+  at 1–4 threads; T-10's fused AVX2 pairs are the main lever. The order
+  stays (T-10 uses T-09's lane loop). 1 GiB pages (T-11) gain nothing unless
+  a lane setting shows TLB walks. Details: `project/done/T-08-profile-hash.md`.
+- **Correction from the T-09 exploration (2026-10-04):** "compute-bound at 7
+  threads" holds for the *single-lane* code only. 7 threads × 2 plain lanes
+  with prefetch gave 5.04 H/s versus 4.12 (+22 %), above the 4.20 H/s that
+  the L2-resident single-lane run allows, while the same 2 lanes *without*
+  prefetch gave 4.06. So the single-lane time is the latency of one serial
+  ChaCha chain per hardware thread, not ALU throughput: once prefetch keeps
+  the next chunk's DRAM miss out of the reorder buffer, the core overlaps
+  independent lanes' ChunkMix calls. T-09 therefore pays at 7 threads too;
+  T-10's fused pairs add more on top (5.95 H/s at 7 × 2 in the same sweep).
 
 ### Approach
 

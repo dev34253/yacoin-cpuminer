@@ -11,6 +11,8 @@ namespace yac {
 // Owner decision Q5: leave one of the laptop's 8 hardware threads free.
 constexpr int kDefaultThreads = 7;
 constexpr int kMaxBenchThreads = 64;
+// Hashes per worker thread per call (T-09); chosen from the T-09 benchmarks.
+constexpr int kDefaultLanes = 2;
 
 struct Options {
     // Where settings come from: defaults < config files < command line.
@@ -20,6 +22,9 @@ struct Options {
     RpcSettings rpc;
 
     int threads = kDefaultThreads;
+    int lanes = kDefaultLanes;
+    std::string prefetch = "t0";  // lanes: prefetch hint for the next chunk (t0, nta, none)
+    std::string mix = "plain";    // lanes: plain (scrypt-jane ChunkMix per lane), fused2, fused4 (T-10)
     int nice = 10;
     unsigned nfactor = 21;
     double tip_poll_s = 5;       // getbestblockhash interval

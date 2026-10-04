@@ -7,11 +7,14 @@
 // rebuilt from its fields must equal the block hash. This proves F1-F3.
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
+#include <vector>
 
 #include "testing.h"
 
 #include "hash/pow_hash.h"
+#include "hash/yac_scrypt.h"
 #include "json.hpp"
 #include "util/hex.h"
 #include "work/header.h"
@@ -140,6 +143,199 @@ TEST(small_nfactor_scratch_matches_reference)
             CHECK(hasher.hash(buf, sizeof buf) == pow_hash_reference(buf, sizeof buf, nf));
         }
     }
+}
+
+// ------------------------------------------------------------ lanes (T-09)
+
+// Lane option sets every lane test runs with (T-10 adds the fused mix).
+static std::vector<unsigned> lane_flag_sets()
+{
+    std::vector<unsigned> f = {kPrefetchT0, kPrefetchNta, kPrefetchNone};
+    if (fused_mix_available())
+        for (unsigned m : {unsigned(kMixFused2), unsigned(kMixFused4)})
+            for (unsigned p : {unsigned(kPrefetchT0), unsigned(kPrefetchNone)}) f.push_back(m | p);
+    return f;
+}
+
+static std::vector<std::vector<uint8_t>> vector_headers(const json& d)
+{
+    std::vector<std::vector<uint8_t>> v;
+    for (auto& e : d["vectors"]) v.push_back(from_hex(e["header_hex"].get<std::string>()));
+    return v;
+}
+
+static std::vector<std::string> vector_hashes(const json& d)
+{
+    std::vector<std::string> v;
+    for (auto& e : d["vectors"]) v.push_back(e["hash"].get<std::string>());
+    return v;
+}
+
+// Every lane position of every lane count 1..max_lanes gets each known-answer
+// vector once (vector i goes to lane (i + shift) mod L, other lanes get
+// filler headers).
+static void check_lane_known_answers(const json& d, unsigned nfactor, unsigned max_lanes, unsigned flags)
+{
+    auto headers = vector_headers(d);
+    auto hashes = vector_hashes(d);
+    for (unsigned L = 1; L <= max_lanes; ++L) {
+        ScryptHasher hasher(nfactor, false, L, flags);
+        for (unsigned shift = 0; shift < L; ++shift) {
+            std::vector<std::vector<uint8_t>> in(L, std::vector<uint8_t>(kHeaderSize));
+            std::vector<int> which(L, -1);
+            for (unsigned k = 0; k < L; ++k)
+                for (size_t j = 0; j < kHeaderSize; ++j) in[k][j] = static_cast<uint8_t>(k * 17 + j * 3 + shift);
+            for (size_t i = 0; i < headers.size(); ++i) {
+                unsigned k = static_cast<unsigned>((i + shift) % L);
+                in[k] = headers[i];
+                which[k] = static_cast<int>(i);
+                std::vector<const uint8_t*> ptr(L);
+                for (unsigned q = 0; q < L; ++q) ptr[q] = in[q].data();
+                std::vector<Hash256> out(L);
+                hasher.hash_lanes(ptr.data(), kHeaderSize, out.data(), L);
+                CHECK_EQ(to_hex_reversed(out[k].data(), 32), hashes[i]);
+            }
+        }
+    }
+}
+
+TEST(lanes_known_answer_testchain_nfactor4_every_lane)
+{
+    json d = load("testchain_headers.json");
+    for (unsigned flags : lane_flag_sets()) check_lane_known_answers(d, 4, kMaxLanes, flags);
+}
+
+TEST(lanes_known_answer_mainnet_nfactor21_every_lane)
+{
+    // L = 2..4. Mainnet vector i goes to lane i mod L, so each lane position of each L
+    // is checked against a real mainnet block hash.
+    json d = load("mainnet_headers.json");
+    auto headers = vector_headers(d);
+    auto hashes = vector_hashes(d);
+    for (unsigned L = 2; L <= 4; ++L) {
+        ScryptHasher hasher(kMainnetNFactor, true, L);
+        std::vector<const uint8_t*> ptr(L);
+        std::vector<size_t> idx(L);
+        for (unsigned k = 0; k < L; ++k) {
+            idx[k] = (k + L) % headers.size();  // different vectors per L
+            ptr[k] = headers[idx[k]].data();
+        }
+        std::vector<Hash256> out(L);
+        auto t0 = std::chrono::steady_clock::now();
+        hasher.hash_lanes(ptr.data(), kHeaderSize, out.data(), L);
+        double dt = seconds_since(t0);
+        for (unsigned k = 0; k < L; ++k) CHECK_EQ(to_hex_reversed(out[k].data(), 32), hashes[idx[k]]);
+        std::printf("    %u lanes at N-factor 21: %.2f s (%.2f H/s, 1 thread)\n", L, dt, L / dt);
+    }
+}
+
+// A small deterministic random generator (tests must be reproducible).
+struct TestRng {
+    uint64_t s;
+    uint32_t next()
+    {
+        s = s * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<uint32_t>(s >> 33);
+    }
+};
+
+TEST(lanes_differential_random_headers_nfactor4)
+{
+    // A different random header and nonce per lane, random lane counts and
+    // partial batches (count < lanes), against the reference hash.
+    TestRng rng{0x5eed};
+    for (unsigned flags : lane_flag_sets()) {
+        for (unsigned L = 1; L <= kMaxLanes; ++L) {
+            ScryptHasher hasher(4, false, L, flags);
+            for (int iter = 0; iter < 25; ++iter) {
+                unsigned count = 1 + rng.next() % L;
+                uint8_t in[kMaxLanes][kHeaderSize];
+                const uint8_t* ptr[kMaxLanes];
+                for (unsigned k = 0; k < count; ++k) {
+                    for (size_t j = 0; j < kHeaderSize; ++j) in[k][j] = static_cast<uint8_t>(rng.next());
+                    set_header_nonce(in[k], rng.next());
+                    ptr[k] = in[k];
+                }
+                Hash256 out[kMaxLanes];
+                hasher.hash_lanes(ptr, kHeaderSize, out, count);
+                for (unsigned k = 0; k < count; ++k) CHECK(out[k] == pow_hash_reference(in[k], kHeaderSize, 4));
+            }
+        }
+    }
+}
+
+TEST(lanes_differential_random_headers_nfactor21)
+{
+    // Different random headers per lane at N-factor 21 (the production
+    // setting) with each mix: L = 5 puts the last table 2 GiB + 8 MiB into
+    // one allocation (past 2^31: catches a signed 32-bit offset), and with
+    // fused4 it runs one quad plus one single lane; fused2 at L = 4 runs two
+    // pairs.
+    TestRng rng{21};
+    std::vector<std::pair<unsigned, unsigned>> cases = {{5, kPrefetchT0}};
+    if (fused_mix_available()) {
+        cases.push_back({4, kMixFused2 | kPrefetchT0});
+        cases.push_back({5, kMixFused4 | kPrefetchT0});
+    }
+    ScryptHasher one(kMainnetNFactor, true);  // reference, reused (plain path)
+    for (auto [L, flags] : cases) {
+        ScryptHasher hasher(kMainnetNFactor, true, L, flags);
+        uint8_t in[kMaxLanes][kHeaderSize];
+        const uint8_t* ptr[kMaxLanes];
+        for (unsigned k = 0; k < L; ++k) {
+            for (size_t j = 0; j < kHeaderSize; ++j) in[k][j] = static_cast<uint8_t>(rng.next());
+            ptr[k] = in[k];
+        }
+        Hash256 out[kMaxLanes];
+        auto t0 = std::chrono::steady_clock::now();
+        hasher.hash_lanes(ptr, kHeaderSize, out, L);
+        std::printf("    %u lanes, flags %u at N-factor 21: %.2f s\n", L, flags, seconds_since(t0));
+        for (unsigned k = 0; k < L; ++k) CHECK(out[k] == one.hash(in[k], kHeaderSize));
+    }
+}
+
+TEST(fused_chunkmix_is_bit_identical)
+{
+    // T-10: the fused 2-lane and 4-lane AVX2 ChunkMix against scrypt-jane's
+    // own ChunkMix (yac_scrypt_chunkmix) called once per lane, on random
+    // chunks, with and without the xor input.
+    if (!fused_mix_available()) {
+        std::printf("    fused mix not compiled in (no AVX2 build); skipped\n");
+        return;
+    }
+    TestRng rng{0xc4ac4a};
+    alignas(64) uint32_t in[4][32], xr[4][32], ref[4][32], got[4][32];
+    for (int iter = 0; iter < 2000; ++iter) {
+        for (int k = 0; k < 4; ++k)
+            for (int w = 0; w < 32; ++w) {
+                in[k][w] = rng.next();
+                xr[k][w] = rng.next();
+            }
+        const bool use_xor = iter % 2;
+        for (int k = 0; k < 4; ++k) yac_scrypt_chunkmix(ref[k], in[k], use_xor ? xr[k] : nullptr);
+        std::memset(got, 0, sizeof got);
+        yac_scrypt_chunkmix2(got[0], in[0], use_xor ? xr[0] : nullptr, got[1], in[1], use_xor ? xr[1] : nullptr);
+        CHECK(std::memcmp(got[0], ref[0], 128) == 0);
+        CHECK(std::memcmp(got[1], ref[1], 128) == 0);
+        std::memset(got, 0, sizeof got);
+        uint32_t* o[4] = {got[0], got[1], got[2], got[3]};
+        uint32_t* i4[4] = {in[0], in[1], in[2], in[3]};
+        uint32_t* x4[4] = {xr[0], xr[1], xr[2], xr[3]};
+        yac_scrypt_chunkmix4(o, i4, use_xor ? x4 : nullptr);
+        CHECK(std::memcmp(got, ref, sizeof ref) == 0);
+    }
+}
+
+TEST(lanes_reject_bad_counts)
+{
+    CHECK_THROWS(ScryptHasher(4, false, 0));
+    CHECK_THROWS(ScryptHasher(4, false, kMaxLanes + 1));
+    ScryptHasher h(4, false, 2);
+    uint8_t buf[kHeaderSize] = {};
+    const uint8_t* ptr[3] = {buf, buf, buf};
+    Hash256 out[3];
+    CHECK_THROWS(h.hash_lanes(ptr, kHeaderSize, out, 3));
+    CHECK_THROWS(h.hash_lanes(ptr, kHeaderSize, out, 0));
 }
 
 TEST(micro_benchmark_nfactor21_one_thread)

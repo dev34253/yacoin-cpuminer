@@ -18,8 +18,8 @@ Mines Yacoin proof-of-work blocks on the CPU via the node's getwork RPC.
 Connection (settings: defaults < config files < command line):
   --conf FILE           miner config (default $XDG_CONFIG_HOME or ~/.config,
                         then yacoin-cpuminer/miner.conf):
-                        rpchost, rpcport, rpcuser, rpcpassword, rpctimeout, threads, nice,
-                        nfactor, tip_poll, work_refresh, retry, stats_interval, hugepages
+                        rpchost, rpcport, rpcuser, rpcpassword, rpctimeout, threads, lanes,
+                        prefetch, mix, nice, nfactor, tip_poll, work_refresh, retry, stats_interval, hugepages
                         ('#' starts a comment only at the start of a line)
   --yacoin-conf FILE    read rpcuser/rpcpassword/rpcport/rpcconnect from a node yacoin.conf
   --rpc-host HOST       default 127.0.0.1
@@ -30,6 +30,18 @@ Connection (settings: defaults < config files < command line):
 
 Mining:
   --threads N           worker threads (default 7; 512 MiB each at N-factor 21)
+  --lanes N             hashes per thread computed together, 1..8 (default 2);
+                        each lane needs its own 512 MiB, so memory is
+                        threads x lanes x 512 MiB (+ 512 MiB for the
+                        reference re-hash before a submit)
+  --prefetch HINT       with lanes > 1: prefetch hint for each lane's next
+                        random chunk: t0 (default), nta or none
+  --mix KIND            with lanes > 1: plain (scrypt-jane's ChunkMix for each
+                        lane, default), fused2 (AVX2: two lanes per
+                        instruction stream) or fused4 (two fused pairs
+                        interleaved); fused needs an AVX2 build. Use lanes
+                        = 2 x the group (fused2: 4, fused4: 8) to give the
+                        prefetch lead time
   --nice N              process nice level (default 10; 0 = leave unchanged)
   --nfactor N           expected N-factor (default 21; the test chain uses 4);
                         must match the node's getmininginfo Nfactor
@@ -89,6 +101,9 @@ static void apply_miner_keys(const std::map<std::string, std::string>& kv, Optio
 {
     for (auto& [k, v] : kv) {
         if (k == "threads") o.threads = static_cast<int>(to_long(k, v));
+        else if (k == "lanes") o.lanes = static_cast<int>(to_long(k, v));
+        else if (k == "prefetch") o.prefetch = v;
+        else if (k == "mix") o.mix = v;
         else if (k == "nice") o.nice = static_cast<int>(to_long(k, v));
         else if (k == "nfactor") o.nfactor = static_cast<unsigned>(to_long(k, v));
         else if (k == "tip_poll") o.tip_poll_s = to_double(k, v);
@@ -142,6 +157,9 @@ Options parse_options(int argc, char** argv, bool read_files)
             throw std::invalid_argument("--rpc-password is not supported: put rpcpassword in the config file (mode 600)");
         else if (a == "--rpc-timeout") o.rpc.timeout_s = to_long(a, value());
         else if (a == "--threads") o.threads = static_cast<int>(to_long(a, value()));
+        else if (a == "--lanes") o.lanes = static_cast<int>(to_long(a, value()));
+        else if (a == "--prefetch") o.prefetch = value();
+        else if (a == "--mix") o.mix = value();
         else if (a == "--nice") o.nice = static_cast<int>(to_long(a, value()));
         else if (a == "--nfactor") o.nfactor = static_cast<unsigned>(to_long(a, value()));
         else if (a == "--tip-poll") o.tip_poll_s = to_double(a, value());
@@ -162,6 +180,11 @@ Options parse_options(int argc, char** argv, bool read_files)
     }
 
     if (o.threads < 1 || o.threads > kMaxBenchThreads) throw std::invalid_argument("--threads must be 1.." + std::to_string(kMaxBenchThreads));
+    if (o.lanes < 1 || o.lanes > 8) throw std::invalid_argument("--lanes must be 1..8");
+    if (o.prefetch != "t0" && o.prefetch != "nta" && o.prefetch != "none")
+        throw std::invalid_argument("--prefetch must be t0, nta or none");
+    if (o.mix != "plain" && o.mix != "fused2" && o.mix != "fused4")
+        throw std::invalid_argument("--mix must be plain, fused2 or fused4");
     if (o.nfactor > 30) throw std::invalid_argument("--nfactor must be 0..30");
     if (o.nice < 0 || o.nice > 19) throw std::invalid_argument("--nice must be 0..19");
     if (o.tip_poll_s < 0.1 || o.work_refresh_s < 1 || o.retry_s < 0.1 || o.stats_s < 1 || o.bench_seconds < 1)

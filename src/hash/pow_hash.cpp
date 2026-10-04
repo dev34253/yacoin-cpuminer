@@ -15,6 +15,8 @@ bool scrypt_self_test() { return yac_scrypt_self_test() == 1; }
 
 std::string scrypt_variant() { return yac_scrypt_mix_name(); }
 
+bool fused_mix_available() { return yac_scrypt_chunkmix2 != nullptr; }
+
 size_t scratch_bytes(unsigned nfactor)
 {
     size_t b = yac_scrypt_scratch_bytes(nfactor);
@@ -34,11 +36,13 @@ Hash256 pow_hash_reference(const uint8_t* data, size_t len, unsigned nfactor)
 
 static constexpr size_t kHugePage = 2u << 20;
 
-ScryptHasher::ScryptHasher(unsigned nfactor, bool huge_pages)
-    : nfactor_(nfactor), bytes_(scratch_bytes(nfactor)), huge_(huge_pages)
+ScryptHasher::ScryptHasher(unsigned nfactor, bool huge_pages, unsigned lanes, unsigned lane_flags)
+    : nfactor_(nfactor), bytes_(scratch_bytes(nfactor)), huge_(huge_pages), lanes_(lanes), flags_(lane_flags)
 {
+    if (lanes_ < 1 || lanes_ > kMaxLanes) throw std::invalid_argument("lanes must be 1.." + std::to_string(kMaxLanes));
     size_t align = huge_ ? kHugePage : 4096;
-    map_len_ = bytes_ + align;
+    stride_ = (bytes_ + align - 1) & ~(align - 1);  // each table starts aligned (>= 128 B)
+    map_len_ = stride_ * lanes_ + align;
     map_ = mmap(nullptr, map_len_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (map_ == MAP_FAILED) {
         map_ = nullptr;
@@ -61,6 +65,21 @@ void ScryptHasher::hash(const uint8_t* data, size_t len, Hash256& out)
 {
     if (yac_scrypt_hash_scratch(data, len, nfactor_, scratch_, out.data()) != 1)
         throw std::runtime_error("scrypt hash failed (bad arguments)");
+}
+
+void ScryptHasher::hash_lanes(const uint8_t* const* inputs, size_t len, Hash256* outs, unsigned count)
+{
+    if (count < 1 || count > lanes_) throw std::invalid_argument("hash_lanes: bad lane count");
+    if (count == 1) {
+        hash(inputs[0], len, outs[0]);
+        return;
+    }
+    uint8_t* tables[kMaxLanes];
+    uint8_t out[kMaxLanes][32];
+    for (unsigned k = 0; k < count; ++k) tables[k] = table(k);
+    if (yac_scrypt_hash_lanes(inputs, len, nfactor_, tables, out, count, flags_) != 1)
+        throw std::runtime_error("scrypt lane hash failed (bad arguments)");
+    for (unsigned k = 0; k < count; ++k) std::memcpy(outs[k].data(), out[k], 32);
 }
 
 }  // namespace yac

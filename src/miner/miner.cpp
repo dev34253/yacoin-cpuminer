@@ -183,42 +183,72 @@ void Miner::worker(unsigned index)
     if (stop_) return;  // stopped during start-up: do not allocate 512 MiB
     std::unique_ptr<ScryptHasher> hasher;
     try {
-        hasher = std::make_unique<ScryptHasher>(cfg_.nfactor, cfg_.huge_pages);
+        hasher = std::make_unique<ScryptHasher>(cfg_.nfactor, cfg_.huge_pages, cfg_.lanes, cfg_.lane_flags);
     } catch (const std::exception& e) {
         fatal("worker " + std::to_string(index) + ": " + e.what());
         return;
     }
     const NonceRange range = nonce_slice(index, cfg_.threads);
-    uint8_t header[kHeaderSize];
-    Hash256 h;
+    const unsigned lanes = hasher->lanes();
+    uint8_t headers[kMaxLanes][kHeaderSize];
+    const uint8_t* inputs[kMaxLanes];
+    for (unsigned k = 0; k < kMaxLanes; ++k) inputs[k] = headers[k];
+    Hash256 h[kMaxLanes];
     uint64_t seen_gen = 0;
     while (!stop_) {
         uint64_t gen;
         std::shared_ptr<const Job> job = board_.wait_for_new(seen_gen, gen, stop_);
         seen_gen = gen;
         if (!job || stop_) continue;  // withdrawn: wait for the next one
-        std::memcpy(header, job->work.header_bytes(), kHeaderSize);
+        for (unsigned k = 0; k < lanes; ++k) std::memcpy(headers[k], job->work.header_bytes(), kHeaderSize);
         uint64_t n = range.begin;
-        for (; n < range.end; ++n) {
+        while (true) {
             // New or withdrawn work: drop this job at once (plan §5).
             if (stop_.load(std::memory_order_relaxed) || board_.generation() != gen) break;
-            set_header_nonce(header, static_cast<uint32_t>(n));
-            hasher->hash(header, kHeaderSize, h);
-            stats_.hashes[index].fetch_add(1, std::memory_order_relaxed);
-            if (hash_meets_target(h, job->work.target)) {
+            const LaneBatch b = next_batch(n, range, lanes);
+            if (b.count == 0) break;
+            for (unsigned k = 0; k < b.count; ++k) set_header_nonce(headers[k], b.nonce(k));
+            hasher->hash_lanes(inputs, kHeaderSize, h, b.count);
+            stats_.hashes[index].fetch_add(b.count, std::memory_order_relaxed);
+            for (unsigned k = 0; k < b.count; ++k) {
+                if (!hash_meets_target(h[k], job->work.target)) continue;
                 stats_.found++;
                 {
                     std::lock_guard<std::mutex> l(sol_mu_);
-                    solutions_.push_back(Solution{job, static_cast<uint32_t>(n), h});
+                    solutions_.push_back(Solution{job, b.nonce(k), h[k]});
                 }
                 sol_cv_.notify_one();
             }
+            n += b.count;
         }
         if (n >= range.end) {
             log_warn("worker " + std::to_string(index) + " scanned its whole nonce slice; asking for new work");
             request_refresh(true);
         }
     }
+}
+
+bool verify_solution(const Solution& s, ScryptHasher& reference, std::string& why)
+{
+    // Rebuild the header from the exact submit data (undo the word byte
+    // order), so the check covers the nonce position too.
+    std::vector<uint8_t> data = from_hex(encode_getwork_submit(s.job->work, s.nonce));
+    if (data.size() != kGetworkDataSize) {
+        why = "submit data has the wrong size";
+        return false;
+    }
+    reverse_words(data.data(), data.size());
+    Hash256 ref = reference.hash(data.data(), kHeaderSize);  // plain scrypt-jane path (one lane)
+    if (ref != s.hash) {
+        why = "the reference hash of the submitted header is " + to_hex_reversed(ref.data(), 32) +
+              ", the worker reported " + to_hex_reversed(s.hash.data(), 32);
+        return false;
+    }
+    if (!hash_meets_target(ref, s.job->work.target)) {
+        why = "the reference hash does not meet the target";
+        return false;
+    }
+    return true;
 }
 
 void Miner::submitter_loop()
@@ -235,6 +265,17 @@ void Miner::submitter_loop()
         while (!stop_ && Clock::now() < until) std::this_thread::sleep_for(std::chrono::milliseconds(50));
     };
     Submitter sub(*api, stats_, stop_, cfg_.retry_s, sleeper);
+    // One plain table for the reference re-hash before each submit (plan §12),
+    // allocated now; the memory check counts it.
+    std::unique_ptr<ScryptHasher> verifier;
+    if (cfg_.verify_before_submit) {
+        try {
+            verifier = std::make_unique<ScryptHasher>(cfg_.nfactor, false);
+        } catch (const std::exception& e) {
+            fatal(std::string("submitter: ") + e.what());
+            return;
+        }
+    }
     std::string dead_prev;  // parent hash that is no longer the tip: drop its solutions
     while (!stop_) {
         Solution s;
@@ -250,6 +291,21 @@ void Miner::submitter_loop()
             continue;
         }
         std::string hash_hex = to_hex_reversed(s.hash.data(), 32);
+        if (verifier) {
+            std::string why;
+            bool ok = false;
+            try {
+                ok = verify_solution(s, *verifier, why);
+            } catch (const std::exception& e) {
+                why = std::string("reference hash failed: ") + e.what();
+            }
+            if (!ok) {
+                stats_.verify_failed++;
+                log_error("BUG: solution " + hash_hex + " (nonce " + std::to_string(s.nonce) +
+                          ") fails the reference re-hash: " + why + "; not submitted");
+                continue;
+            }
+        }
         log_info("FOUND block " + hash_hex + " (nonce " + std::to_string(s.nonce) + ", job " +
                  std::to_string(s.job->id) + "); submitting");
         SubmitResult r;
@@ -354,7 +410,8 @@ std::string Miner::stats_line(double interval_s, const std::vector<uint64_t>& pr
            std::to_string(stats_.accepted.load()) + ", rejected " +
            std::to_string(stats_.rejected.load()) + ", stale " + std::to_string(stats_.stale.load()) +
            ", retried " + std::to_string(stats_.retried.load()) + ", dropped " +
-           std::to_string(stats_.dropped.load()) + ", hashes " + std::to_string(stats_.total_hashes());
+           std::to_string(stats_.dropped.load()) +
+           (stats_.verify_failed.load() ? ", VERIFY FAILED " + std::to_string(stats_.verify_failed.load()) : "") + ", hashes " + std::to_string(stats_.total_hashes());
 }
 
 int Miner::run()
@@ -447,7 +504,8 @@ int Miner::run()
 // --------------------------------------------------------------- benchmark
 
 double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool huge_pages,
-                     std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s)
+                     std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s,
+                     unsigned lanes, unsigned lane_flags)
 {
     // Each thread counts only hashes that finish after `warmup_s` (laptop
     // turbo/PL2 settles, plan §12). Its rate is measured from its first
@@ -463,21 +521,27 @@ double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool hu
     std::vector<std::thread> ts;
     for (unsigned i = 0; i < threads; ++i) {
         ts.emplace_back([&, i] {
+            bool counted_ready = false;
             try {
-                ScryptHasher hasher(nfactor, huge_pages);
-                uint8_t header[kHeaderSize];
-                for (size_t j = 0; j < kHeaderSize; ++j) header[j] = static_cast<uint8_t>(j * 13 + i);
-                Hash256 h;
-                hasher.hash(header, kHeaderSize, h);  // warm-up: touches all scratch pages
+                ScryptHasher hasher(nfactor, huge_pages, lanes, lane_flags);
+                uint8_t headers[kMaxLanes][kHeaderSize];
+                const uint8_t* inputs[kMaxLanes];
+                for (unsigned k = 0; k < lanes; ++k) {
+                    for (size_t j = 0; j < kHeaderSize; ++j) headers[k][j] = static_cast<uint8_t>(j * 13 + i);
+                    inputs[k] = headers[k];
+                }
+                Hash256 h[kMaxLanes];
+                hasher.hash_lanes(inputs, kHeaderSize, h, lanes);  // warm-up: touches all scratch pages
                 ready++;
+                counted_ready = true;
                 while (!go && !stop) std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 auto t0 = Clock::now();
                 bool started = warmup_s <= 0;  // no warm-up: measure from t0
                 double t_first = 0;
                 uint32_t nonce = 0;
                 while (!done && !stop) {
-                    set_header_nonce(header, nonce++);
-                    hasher.hash(header, kHeaderSize, h);
+                    for (unsigned k = 0; k < lanes; ++k) set_header_nonce(headers[k], nonce++);
+                    hasher.hash_lanes(inputs, kHeaderSize, h, lanes);
                     if (done) break;  // finished after the deadline: not counted
                     double t = std::chrono::duration<double>(Clock::now() - t0).count();
                     if (!started) {
@@ -487,12 +551,12 @@ double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool hu
                         }
                         continue;
                     }
-                    counts[i]++;
+                    counts[i] += lanes;
                     elapsed[i] = t - t_first;
                 }
             } catch (const std::exception& e) {
                 errors[i] = e.what();
-                ready++;
+                if (!counted_ready) ready++;
             }
         });
     }

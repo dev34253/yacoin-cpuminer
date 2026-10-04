@@ -55,20 +55,24 @@ static std::string gib(double bytes)
 
 // threads x scratch must fit in available memory, with headroom for the
 // node's own 512 MiB hash on every submit (plan §5 Memory).
-static bool memory_ok(const Options& o)
+// threads x lanes tables, plus one more for the reference re-hash before a
+// submit (plan §12).
+static bool memory_ok(const Options& o, bool mining)
 {
-    double need = double(o.threads) * double(scratch_bytes(o.nfactor));
+    double scratch = double(scratch_bytes(o.nfactor));
+    double need = double(o.threads) * o.lanes * scratch + (mining ? scratch : 0);
     double headroom = o.nfactor >= 20 ? 1024.0 * 1024 * 1024 : 64.0 * 1024 * 1024;
     double avail = double(mem_available_bytes());
-    log_info("memory: " + std::to_string(o.threads) + " threads x " + gib(double(scratch_bytes(o.nfactor))) + " = " +
-             gib(need) + "; available " + (avail > 0 ? gib(avail) : std::string("unknown")));
+    log_info("memory: " + std::to_string(o.threads) + " threads x " + std::to_string(o.lanes) + " lanes x " +
+             gib(scratch) + (mining ? " + 1 for the submit check" : "") + " = " + gib(need) + "; available " +
+             (avail > 0 ? gib(avail) : std::string("unknown")));
     if (avail > 0 && need + headroom > avail) {
         if (o.ignore_memory_check) {
             log_warn("not enough free memory (need " + gib(need + headroom) + " incl. headroom); continuing (--ignore-memory-check)");
             return true;
         }
         log_error("not enough free memory: need " + gib(need) + " + " + gib(headroom) + " headroom, available " +
-                  gib(avail) + ". Use fewer --threads (or --ignore-memory-check).");
+                  gib(avail) + ". Use fewer --threads or --lanes (or --ignore-memory-check).");
         return false;
     }
     return true;
@@ -102,14 +106,39 @@ static int check_work(const Options& o)
     return ok ? 0 : 1;
 }
 
+// Fused mixes need an AVX2 build and at least 2 lanes; refuse a setting
+// that would silently run the plain mix (and mislabel a benchmark).
+static bool lane_options_ok(const Options& o)
+{
+    if (o.mix != "plain" && !fused_mix_available()) {
+        log_error("--mix " + o.mix + " needs a build with AVX2 (-march=native on an AVX2 CPU); this build has none");
+        return false;
+    }
+    if (o.mix != "plain" && o.lanes < 2) {
+        log_error("--mix " + o.mix + " needs --lanes 2 or more");
+        return false;
+    }
+    return true;
+}
+
+static unsigned lane_flags(const Options& o)
+{
+    unsigned f = o.prefetch == "nta" ? kPrefetchNta : o.prefetch == "none" ? kPrefetchNone : kPrefetchT0;
+    if (o.mix == "fused2") f |= kMixFused2;
+    if (o.mix == "fused4") f |= kMixFused4;
+    return f;
+}
+
 static int benchmark(const Options& o)
 {
-    log_info("benchmark: " + std::to_string(o.threads) + " threads, N-factor " + std::to_string(o.nfactor) + ", " +
+    log_info("benchmark: " + std::to_string(o.threads) + " threads x " + std::to_string(o.lanes) + " lanes (prefetch " +
+             o.prefetch + ", mix " + o.mix + "), N-factor " + std::to_string(o.nfactor) + ", " +
              fmt_double(o.bench_seconds, 0) + " s (first " + fmt_double(o.bench_warmup, 0) + " s not counted), " + scrypt_variant() + ", huge pages " +
              (o.huge_pages ? "requested" : "off") + ", nice " + std::to_string(o.nice));
-    if (!memory_ok(o)) return 1;
+    if (!lane_options_ok(o) || !memory_ok(o, false)) return 1;
     std::vector<double> per;
-    double total = run_benchmark(static_cast<unsigned>(o.threads), o.nfactor, o.bench_seconds, o.huge_pages, per, g_stop, o.bench_warmup);
+    double total = run_benchmark(static_cast<unsigned>(o.threads), o.nfactor, o.bench_seconds, o.huge_pages, per, g_stop, o.bench_warmup,
+                                 static_cast<unsigned>(o.lanes), lane_flags(o));
     std::string s;
     for (size_t i = 0; i < per.size(); ++i) s += (i ? " " : "") + fmt_double(per[i], 3);
     log_info("benchmark result: total " + fmt_double(total, 3) + " H/s, per thread [" + s + "]");
@@ -117,14 +146,16 @@ static int benchmark(const Options& o)
         double hours = expected_hashes(target_from_compact(0x1e0fffff)) / total / 3600.0;
         log_info("at mainnet minimum difficulty (1e0fffff): expected " + fmt_double(hours, 1) + " h per block");
     }
-    std::printf("BENCH threads=%d nfactor=%u hugepages=%d total_hps=%.4f\n", o.threads, o.nfactor, o.huge_pages ? 1 : 0, total);
+    std::printf("BENCH threads=%d lanes=%d mix=%s prefetch=%s nfactor=%u hugepages=%d total_hps=%.4f\n", o.threads,
+                o.lanes, o.mix.c_str(), o.prefetch.c_str(), o.nfactor, o.huge_pages ? 1 : 0, total);
     return 0;
 }
 
 static int mine(const Options& o)
 {
     log_info("yacoin-cpuminer " + std::string(YAC_MINER_VERSION) + " (" + scrypt_variant() + "), node " +
-             o.rpc.describe() + ", " + std::to_string(o.threads) + " threads, N-factor " + std::to_string(o.nfactor) +
+             o.rpc.describe() + ", " + std::to_string(o.threads) + " threads x " + std::to_string(o.lanes) +
+             " lanes (mix " + o.mix + ", prefetch " + o.prefetch + "), N-factor " + std::to_string(o.nfactor) +
              ", nice " + std::to_string(o.nice) + ", huge pages " + (o.huge_pages ? "on" : "off"));
     if (o.rpc.user.empty() || o.rpc.password.empty())
         log_warn("no rpcuser/rpcpassword configured (config file " + o.conf + ")");
@@ -159,10 +190,12 @@ static int mine(const Options& o)
                  "; once it locks, found blocks cannot be signed. The miner stops calling getwork if the keypool "
                  "then runs empty.");
     if (ni.connections == 0) log_warn("the node has no peers: getwork is refused until it has one (plan F8)");
-    if (!memory_ok(o)) return 1;
+    if (!lane_options_ok(o) || !memory_ok(o, true)) return 1;
 
     MinerConfig cfg;
     cfg.threads = static_cast<unsigned>(o.threads);
+    cfg.lanes = static_cast<unsigned>(o.lanes);
+    cfg.lane_flags = lane_flags(o);
     cfg.nfactor = o.nfactor;
     cfg.huge_pages = o.huge_pages;
     cfg.tip_poll_s = o.tip_poll_s;

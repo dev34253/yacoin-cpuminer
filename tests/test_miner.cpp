@@ -1,6 +1,7 @@
 // yacoin-cpuminer: mining-loop unit tests (task T-04): nonce slicing, stale
 // work, target checks and the submit-retry logic, without a real node. MIT licence.
 #include <chrono>
+#include <cstring>
 #include <thread>
 
 #include "testing.h"
@@ -37,6 +38,85 @@ TEST(nonce_slices_are_disjoint_and_cover_all)
         }
         CHECK_EQ(expect_begin, uint64_t(1) << 32);
     }
+}
+
+TEST(lane_batches_cover_the_slice_exactly)
+{
+    // Lane k of a batch hashes nonce first + k; batches are consecutive and
+    // the last one is partial when the slice is not a multiple of the lanes.
+    for (unsigned lanes = 1; lanes <= kMaxLanes; ++lanes) {
+        for (uint64_t size : {uint64_t(1), uint64_t(7), uint64_t(8), uint64_t(23), uint64_t(64)}) {
+            NonceRange r{1000, 1000 + size};
+            uint64_t n = r.begin, expect = r.begin, batches = 0;
+            unsigned last_count = 0;
+            while (true) {
+                LaneBatch b = next_batch(n, r, lanes);
+                if (b.count == 0) break;
+                CHECK(b.count <= lanes);
+                for (unsigned k = 0; k < b.count; ++k) CHECK_EQ(uint64_t(b.nonce(k)), expect++);
+                last_count = b.count;
+                n += b.count;
+                ++batches;
+            }
+            CHECK_EQ(expect, r.end);
+            CHECK_EQ(batches, (size + lanes - 1) / lanes);
+            CHECK_EQ(uint64_t(last_count), size % lanes ? size % lanes : uint64_t(lanes));
+        }
+    }
+}
+
+TEST(lane_batch_at_the_top_of_the_nonce_space)
+{
+    // The last thread's slice ends at 2^32: nonces must not wrap.
+    NonceRange r{(uint64_t(1) << 32) - 5, uint64_t(1) << 32};
+    LaneBatch b = next_batch(r.begin, r, 3);
+    CHECK_EQ(b.count, 3u);
+    CHECK_EQ(b.nonce(0), 0xfffffffbu);
+    b = next_batch(r.begin + 3, r, 3);
+    CHECK_EQ(b.count, 2u);
+    CHECK_EQ(b.nonce(1), 0xffffffffu);
+    CHECK_EQ(next_batch(r.end, r, 3).count, 0u);
+}
+
+TEST(verify_solution_rehashes_the_submitted_header)
+{
+    NodeSim sim(1, 0x2000ffff);
+    auto job = std::make_shared<Job>();
+    job->id = 1;
+    job->work = sim.get_work();
+    job->prev_hex = job->work.header.prev_hex();
+    ScryptHasher hasher(1);
+    uint8_t header[kHeaderSize];
+    std::memcpy(header, job->work.header_bytes(), kHeaderSize);
+    Solution good, miss;
+    bool have_good = false, have_miss = false;
+    for (uint32_t n = 0; n < 100000 && !(have_good && have_miss); ++n) {
+        set_header_nonce(header, n);
+        Hash256 h = hasher.hash(header, kHeaderSize);
+        bool meets = hash_meets_target(h, job->work.target);
+        Solution& s = meets ? good : miss;
+        if (meets ? have_good : have_miss) continue;
+        s.job = job;
+        s.nonce = n;
+        s.hash = h;
+        (meets ? have_good : have_miss) = true;
+    }
+    CHECK(have_good && have_miss);
+    ScryptHasher ref(1);
+    std::string why;
+    CHECK(verify_solution(good, ref, why));
+    // A lane-to-nonce mix-up: the right hash reported with another nonce.
+    Solution wrong_nonce = good;
+    wrong_nonce.nonce ^= 1;
+    CHECK(!verify_solution(wrong_nonce, ref, why));
+    CHECK(why.find("reference hash") != std::string::npos);
+    // A broken optimized hash: wrong bytes reported.
+    Solution wrong_hash = good;
+    wrong_hash.hash[5] ^= 0x40;
+    CHECK(!verify_solution(wrong_hash, ref, why));
+    // Correct hash, but it does not meet the target.
+    CHECK(!verify_solution(miss, ref, why));
+    CHECK(why.find("target") != std::string::npos);
 }
 
 // ---------------------------------------------------------------- Submitter
@@ -244,6 +324,27 @@ TEST(miner_finds_and_submits_blocks)
     CHECK(m.stats().found.load() >= 5);
 }
 
+TEST(miner_with_lanes_finds_and_submits_blocks)
+{
+    // 3 lanes per thread; every solution passes the reference re-hash before
+    // the submit (verify_failed stays 0) and the node accepts it.
+    auto sim = std::make_shared<NodeSim>(1, 0x2000ffff);
+    std::atomic<bool> stop{false};
+    MinerConfig cfg = fast_config(2);
+    cfg.lanes = 3;
+    cfg.max_blocks = 5;
+    Miner m(cfg, [sim] { return std::make_unique<SimApi>(sim); }, stop);
+    std::thread t([&] { CHECK_EQ(m.run(), 0); });
+    bool done = wait_until([&] { return stop.load(); }, 60);
+    stop = true;
+    t.join();
+    CHECK(done);
+    CHECK_EQ(sim->accepted().size(), size_t(5));
+    CHECK_EQ(m.stats().accepted.load(), uint64_t(5));
+    CHECK_EQ(m.stats().rejected.load(), uint64_t(0));
+    CHECK_EQ(m.stats().verify_failed.load(), uint64_t(0));
+}
+
 TEST(miner_drops_stale_work_when_tip_changes)
 {
     // Target 0 (nBits 0x01000000): never solvable, so only the tip logic acts.
@@ -359,6 +460,15 @@ TEST(benchmark_runs_without_node)
     CHECK_EQ(per.size(), size_t(2));
     CHECK(total > 0);
     CHECK(per[0] > 0 && per[1] > 0);
+}
+
+TEST(benchmark_with_lanes_and_warmup)
+{
+    std::atomic<bool> stop{false};
+    std::vector<double> per;
+    double total = run_benchmark(2, 4, 1.5, false, per, stop, 0.5, 3);
+    CHECK_EQ(per.size(), size_t(2));
+    CHECK(total > 0);
 }
 
 TEST_MAIN()

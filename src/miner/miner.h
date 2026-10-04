@@ -46,6 +46,7 @@ struct Stats {
     std::atomic<uint64_t> stale{0};      // tip changed before (or during) the submit
     std::atomic<uint64_t> retried{0};    // submit attempts repeated (no peers, IBD, node down, wallet locked)
     std::atomic<uint64_t> dropped{0};    // solutions for work already superseded, never submitted
+    std::atomic<uint64_t> verify_failed{0};  // solutions that failed the reference re-hash (a bug), never submitted
 
     uint64_t total_hashes() const;
 };
@@ -95,8 +96,11 @@ private:
 
 struct MinerConfig {
     unsigned threads = 1;
+    unsigned lanes = 1;  // hashes per worker per call (T-09); each lane has its own table
+    unsigned lane_flags = kDefaultLaneFlags;
     unsigned nfactor = 21;
     bool huge_pages = true;
+    bool verify_before_submit = true;  // recompute the reference hash of the exact submitted header
     double tip_poll_s = 5;
     double work_refresh_s = 300;
     double retry_s = 5;
@@ -145,10 +149,23 @@ private:
     std::deque<Solution> solutions_;
 };
 
+// Recomputes the PoW hash of the header that `encode_getwork_submit(job,
+// nonce)` would send (rebuilt from that data, so the nonce position counts
+// too), with the plain scrypt-jane ROMix on a one-lane `reference` hasher,
+// and checks that it equals s.hash and meets the target (plan §12: catches a
+// wrong lane-to-nonce mapping or a broken optimized hash path). It does not
+// catch a wrong getwork word order: that round trip is checked by
+// test_getwork. The hasher is allocated up front, so a submit never
+// allocates 512 MiB (scrypt-jane's own allocating call exits the process on
+// malloc failure). On failure `why` says what differs.
+bool verify_solution(const Solution& s, ScryptHasher& reference, std::string& why);
+
 // Benchmark without a node: `threads` workers hash for `seconds` at `nfactor`;
 // hashes finishing in the first `warmup_s` seconds are not counted.
 // Returns total H/s; per-thread rates go to `per_thread`.
+// Each thread computes `lanes` hashes per call (T-09).
 double run_benchmark(unsigned threads, unsigned nfactor, double seconds, bool huge_pages,
-                     std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s = 0);
+                     std::vector<double>& per_thread, const std::atomic<bool>& stop, double warmup_s = 0,
+                     unsigned lanes = 1, unsigned lane_flags = kDefaultLaneFlags);
 
 }  // namespace yac

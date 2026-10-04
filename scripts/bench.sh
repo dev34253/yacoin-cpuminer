@@ -80,7 +80,9 @@ for ((r = 1; r <= REPS; r++)); do
     if [[ -n ${args:-} ]]; then
       IFS=, read -ra toks <<<"$args"
       for t in "${toks[@]}"; do
-        if [[ $t == bin=* ]]; then bin=${t#bin=}; else extra+=("$t"); fi
+        if [[ $t == bin=* ]]; then bin=${t#bin=}
+        elif [[ $t == --*=* ]]; then extra+=("${t%%=*}" "${t#*=}")  # --opt=value -> --opt value
+        else extra+=("$t"); fi
       done
     fi
     log=$(mktemp)
