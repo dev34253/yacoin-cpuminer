@@ -69,3 +69,15 @@ Run the miner against the mainnet node safely, with a runbook.
   256-bit AVX2, and the lower clock is most likely the CPU's AVX2 frequency
   offset, which the platform profile does not change. The hash rate stayed at
   about 6.6 H/s. Profile set back to `balanced`.
+- **2026-10-05 04:19:42 EDT: first block found and accepted.** Block
+  1,964,622, hash
+  `00000098f01a02fd21aac1ebc8e2c485cfa66aac9ba54fe762f8f60e739725be`
+  (nonce 2863311823), parent
+  `000009fe7fb188a80cb8be93a08c95d642a5a62ef9b647085c94c9ff91aba483`.
+  `getwork` returned true 4 s later. Checked 2026-10-05 22:08 EDT: it is the
+  main-chain block at that height with 3 confirmations (blocks 1,964,623
+  and 1,964,624 from other miners build on it), mint 5.167084 YAC, and the
+  wallet lists it as `immature`, `generated: true` (spendable after 6
+  confirmations). Mining stats at that point: 6 × 4 fused2, affinity spread,
+  about 6.7 H/s, 821,208 hashes since the 11:33 restart on 2026-10-04,
+  found 1, accepted 1, rejected 0, stale 0.
